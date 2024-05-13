@@ -1,0 +1,13 @@
+# Requirements
+paramiko~=3.4.0
+dnspython~=2.6.1
+cryptography~=42.0.7
+fortigate_api~=2.0.1
+pandas~=2.2.2
+XlsxWriter~=3.2.0
+
+# Engines
+openpyxl~=3.1.2
+odfpy~=1.4.1
+pyxlsb~=1.0.10
+xlrd~=2.0.1
