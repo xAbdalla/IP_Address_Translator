@@ -3,7 +3,7 @@
 # IP Address Translator (IAT)
 
 ![Static Badge](https://img.shields.io/badge/language-python-yellow)
-![Static Badge](https://img.shields.io/badge/version-1.0--beta-blue)
+![Static Badge](https://img.shields.io/badge/version-1.0-blue)
 ![Static Badge](https://img.shields.io/badge/license-MIT-green)
 [![Static Badge](https://img.shields.io/badge/author-xAbdalla-red)](https://github.com/xAbdalla)
 
@@ -19,7 +19,7 @@ IP Address Translator is a Python script that maps IP addresses to descriptive o
 - Accepts Excel / CSV / Text files.
 - Direct input of single IP address, subnet, range, or list of them (Comma Separated).
 
-  ####   File Input Specifications
+  ####   Files Specifications
 - Input Excel / CSV files could have multiple sheets, each must contain a column named '**Subnet**'.
 - Reference Excel / CSV files require three columns: '**Tenant**', '**Address object**', and '**Subnet**'.
 - Check the provided [examples](res/examples) for the correct format.
@@ -31,29 +31,34 @@ IP Address Translator is a Python script that maps IP addresses to descriptive o
 - **Cisco ACI**: Connects via SSH to APIC to retrieve address objects based on a specified Class.
 - **DNS**: Resolves IPs to domain names using the system dns servers or a user-provided DNS servers.
 
-  ####   Palo Alto Panorama/Firewall Specifications
-- Ensure Panorama/Firewall is reachable and has CLI access.
-- Leave "Vsys" field empty if you want to retrieve address objects from all virtual systems.
-    
+  ####   Palo Alto Panorama/FW Specifications
+    - Ensure Panorama/Firewall is reachable and has CLI access.
+    - Leave "VSYS" field empty if you want to retrieve address objects from all virtual systems.
+    - The program may fail to import the addresses due to slow response, just try again until it works.
+  
   ####   Fortinet FortiGate Specifications
-- Ensure FortiGate is reachable and you have REST API access.
-- Leave "Vdom" field empty if you want to retrieve address objects from all virtual domains.
+    - Ensure FortiGate is reachable and you have REST API enabled.
+    - Leave "VDOM" field empty if you want to retrieve address objects from all virtual domains.
     
   ####   Cisco ACI Specifications
-- Ensure APIC is reachable and has CLI access.
-- Specify the Class of the address objects to be searched.
-- The program searches the "dn" attribute exclusively.
+    - Ensure APIC is reachable and has CLI access.
+    - Specify the Class of the address objects to be searched.
+    - The program searches the "dn" attribute exclusively.
     
   ####   DNS Resolver
-- Resolves IPs to domain names using the system dns servers or a user-provided DNS servers.
-- You can specify up to four DNS servers.
+    - Resolves IPs to domain names using the system dns servers or a user-provided DNS servers.
+    - You can specify up to four DNS servers.
 
 ### Encrypted Credentials Storage
-- An option to save your credentials for future use.
+- An option to save your credentials for future use and avoid re-entering them.
+- Credentials are stored locally in the application directory.
 - Stored information are encrypted for security purposes.
+- The encryption key is unique to each user and machine.
 
 ### Saving the Output
 - Results are exported to a new Excel (.xlsx) file for ease of access and analysis.
+- The generated file contains the original data along with the mapped names.
+- The user can specify the output file name and location to prevent overwriting.
 
 ### Logging
 - Detailed logs are generated for each operation.
@@ -67,31 +72,31 @@ IP Address Translator is a Python script that maps IP addresses to descriptive o
 - Errors are color-coded for better readability.
 
 ## Requirements
-- Install [Python 3](https://www.python.org/downloads/) (Tested only on Python 3.12).
+- Install [Python 3](https://www.python.org/downloads/) (v3.12 recommended).
 - Install the required packages using the following command:
   ```commandline
   pip install -r requirements.txt
   ```
    ### Build Executable
-- You can find the compiled executable files in the [releases page](https://github.com/xAbdalla/IP_Address_Translator/releases).
+- You can find the prebuild executable files in the [releases page](https://github.com/xAbdalla/IP_Address_Translator/releases).
 - To build the executable file, you need to install the following packages:
   ```commandline
   pip install pyinstaller
   ```
 - Run the following command to build the executable file:
   ```commandline
-    pyinstaller --onefile --windowed --icon "res/img/IAT_icon.ico" --splash "res/img/IAT_splash.png" --disable-windowed-traceback "IP_Address_Translator_v1.0b.py"
+    pyinstaller --name "IP_Address_Translator_v1.0" --onefile --windowed --icon "res/img/IAT_icon.ico" --splash "res/img/IAT_splash.png" --disable-windowed-traceback "main.py"
   ```
 - If you want to compress the executable file, you can use [UPX](https://upx.github.io/) by adding the following flag:
   ```text
-    --upx-dir "path/to/upx/folder"
+    --upx-dir "path/to/upx/folder" --upx-exclude "python3.dll" --upx-exclude "_uuid.pyd"
   ```
 - The executable file will be generated in the 'dist' folder.
 
 ## Usage
-- Execute the binary file or run the script using the following command:
+- Run the executable file or run the script using the following command:
   ```commandline
-    python "IP_Address_Translator_v1.0b.py"
+    python "main.py"
   ```
 - Fill in the required fields and select the desired search method.
 - Ensure the chosen search methods are accessible and correctly configured.
