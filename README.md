@@ -20,9 +20,9 @@ IP Address Translator is a Python script that maps IP addresses to descriptive o
 - Direct input of single IP address, subnet, range, or list of them (Comma Separated).
 
   ####   Files Specifications
-- Input Excel / CSV files could have multiple sheets, each must contain a column named '**Subnet**'.
-- Reference Excel / CSV files require three columns: '**Tenant**', '**Address object**', and '**Subnet**'.
-- Check the provided [examples](res/examples) for the correct format.
+    - Input Excel / CSV files could have multiple sheets, each must contain a column named '**Subnet**'.
+    - Reference Excel / CSV files require three columns: '**Tenant**', '**Address object**', and '**Subnet**'.
+    - Check the provided [examples](res/examples) for the correct format.
 
 ### Various Searching Methods
 - **Reference File**: Searches for matches in a user-provided reference file.
@@ -78,20 +78,20 @@ IP Address Translator is a Python script that maps IP addresses to descriptive o
   pip install -r requirements.txt
   ```
    ### Build Executable
-- You can find the prebuild executable files in the [releases page](https://github.com/xAbdalla/IP_Address_Translator/releases).
-- To build the executable file, you need to install the following packages:
-  ```commandline
-  pip install pyinstaller
-  ```
-- Run the following command to build the executable file:
-  ```commandline
-    pyinstaller --name "IP_Address_Translator_v1.0" --onefile --windowed --icon "res/img/IAT_icon.ico" --splash "res/img/IAT_splash.png" --disable-windowed-traceback "main.py"
-  ```
-- If you want to compress the executable file, you can use [UPX](https://upx.github.io/) by adding the following flag:
-  ```text
-    --upx-dir "path/to/upx/folder" --upx-exclude "python3.dll" --upx-exclude "_uuid.pyd"
-  ```
-- The executable file will be generated in the 'dist' folder.
+    - You can find the prebuild executable files in the [releases page](https://github.com/xAbdalla/IP_Address_Translator/releases).
+    - To build the executable file, you need to install the following packages:
+    ```commandline
+     pip install pyinstaller
+     ```
+    - Run the following command to build the executable file:
+    ```commandline
+       pyinstaller --name "IP_Address_Translator_v1.0" --onefile --windowed --icon "res/img/IAT_icon.ico" --splash "res/img/IAT_splash.png" --disable-windowed-traceback "main.py"
+     ```
+    - If you want to compress the executable file, you can use [UPX](https://upx.github.io/) by adding the following flag:
+    ```text
+       --upx-dir "path/to/upx/folder" --upx-exclude "python3.dll" --upx-exclude "_uuid.pyd"
+     ```
+    - The executable file will be generated in the 'dist' folder.
 
 ## Usage
 - Run the executable file or run the script using the following command:
