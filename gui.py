@@ -1,4 +1,3 @@
-import os
 import re
 import time
 import webbrowser
@@ -9,8 +8,9 @@ from typing_extensions import Literal
 
 import tkinter as tk
 from tkinter import ttk
-from tkinter import filedialog
+from tkinter import StringVar
 from tkinter import messagebox
+from tkinter.filedialog import askopenfilename
 
 import utilities
 from utilities import IPTranslator
@@ -18,15 +18,13 @@ from utilities import PropagatingThread
 from utilities import VerticalScrolledFrame
 
 
-def browse_file(string_var: tk.StringVar,
-                files_ext: list | tuple | set,
+def browse_file(string_var: StringVar,
+                files_ext: list | tuple | set = ("*",),
                 title: str = "Select a file") -> str | None:
-    files_ext: str = ";".join([f"*.{x}" for x in set(files_ext)])
+    files_ext: str = ";".join([f"*.{x}" for x in set(files_ext) if x])
 
     # Open a file dialog
-    filename = filedialog.askopenfilename(title=title,
-                                          filetypes=(("Supported Files", files_ext),
-                                                     ("All Files", "*.*")))
+    filename = askopenfilename(title=title, filetypes=(("Supported Files", files_ext),))
 
     # Check if a file is selected
     if filename != "":
@@ -45,46 +43,103 @@ def separator(parent: tk.Tk | tk.Toplevel | ttk.Frame,
     __separator.pack(fill=fill, pady=y_offset, padx=x_offset)
 
 
+def create_rmenu(window=None) -> None | tk.Menu:
+    if not window:
+        return
+
+    # Create a right click functions
+    def cut():
+        widget = window.focus_get()
+        if isinstance(widget, tk.Entry):
+            widget.event_generate("<<Cut>>")
+
+    def copy():
+        widget = window.focus_get()
+        if isinstance(widget, tk.Entry):
+            widget.event_generate("<<Copy>>")
+
+    def paste():
+        widget = window.focus_get()
+        if isinstance(widget, tk.Entry):
+            widget.event_generate("<<Paste>>")
+
+    def delete():
+        widget = window.focus_get()
+        if isinstance(widget, tk.Entry):
+            widget.event_generate("<Delete>")
+
+    def select_all():
+        widget = window.focus_get()
+        if isinstance(widget, tk.Entry):
+            widget.event_generate("<<SelectAll>>")
+
+    def clear_all():
+        widget = window.focus_get()
+        if isinstance(widget, tk.Entry):
+            widget.delete(0, "end")
+
+    # Create a right click menu
+    menu = tk.Menu(window, tearoff=0)
+    menu.add_command(label="Cut", command=cut)
+    menu.add_command(label="Copy", command=copy)
+    menu.add_command(label="Paste", command=paste)
+    menu.add_command(label="Delete", command=delete)
+    menu.add_separator()
+    menu.add_command(label="Select All", command=select_all)
+    menu.add_command(label="Clear All", command=clear_all)
+    return menu
+
+
 class EntryRow:
     def __init__(self, parent: ttk.Frame, row: int, **kwargs):
-        """Create a row for each method in the application."""
+        """Create a row with label, entry, button, and checkbox."""
 
-        # Create  a Label
-        self.label = ttk.Label(parent, text=kwargs["label"]["text"])
+        # Label Variables
+        self.label_text = kwargs["label"]["text"]
+
+        # Entry Variables
+        self.entry_name = kwargs["entry"]["name"]
+        self.entry_width = kwargs["entry"]["width"]
+        self.entry_right_click = kwargs["entry"]["right_click"]
+        self.entry_callback_fn = kwargs["entry"].get("callback")
+        self.translator = kwargs["entry"]["IPTranslator"]
+
+        # Button Variables
+        self.button_name = kwargs["button"]["name"]
+        self.button_text = kwargs["checkbox"].get("text", "Browse")
+        self.button_command = kwargs["button"]["command"]
+        self.button_args = kwargs["button"]["args"]
+
+        # Checkbox Variables
+        self.checkbox_default = kwargs["checkbox"].get("default", 0)
+        self.checkbox_command = kwargs["checkbox"]["command"]
+        self.checkbox_state = kwargs["checkbox"].get("state")
+        self.checkbox_cursor = kwargs["checkbox"].get("cursor")
+
+        # Create a Label
+        self.label = ttk.Label(parent, text=self.label_text)
         self.label.grid(row=row, column=0, sticky="e", padx=(0, 5), pady=(0, 5))
 
-        def entry_callback(*args) -> None:
-            kwargs["entry"]["callback"](str(self.entry.focus_get()))
-
-        self.string_var = tk.StringVar()
-        if kwargs["entry"].get("callback"):
-            self.string_var.trace_add("write", entry_callback)
+        self.string_var = StringVar()
+        if self.entry_callback_fn:
+            self.trace_id = self.string_var.trace_add("write", self.entry_callback)
 
         # Create an Entry
         self.entry = ttk.Entry(parent,
-                               width=kwargs["entry"]["width"],
                                textvariable=self.string_var,
-                               name=kwargs["entry"]["name"])
-        self.entry.bind("<Button-3>", kwargs["entry"]["right_click"])
-        if kwargs["entry"].get("callback"):
-            self.entry.bind("<FocusOut>", entry_callback)
+                               width=self.entry_width,
+                               name=self.entry_name)
+        self.entry.bind("<Button-3>", self.entry_right_click)
+        if self.entry_callback_fn:
+            self.entry.bind("<FocusOut>", self.entry_callback)
         self.entry.grid(row=row, column=1, sticky="w", padx=(0, 5), pady=(0, 5))
 
         # Create a Button
-        def button_callback() -> str | None:
-            filename = kwargs["button"]["command"](self.string_var, *kwargs["button"]["args"])
-            if filename:
-                if kwargs["entry"]["name"] == "input_entry":
-                    kwargs["entry"]["IPTranslator"].input_file = filename
-                elif kwargs["entry"]["name"] == "ref_entry":
-                    kwargs["entry"]["IPTranslator"].ref_file = filename
-            return filename
-
         self.button = ttk.Button(parent,
-                                 text=kwargs["button"]["text"],
-                                 command=button_callback,
+                                 text=self.button_text,
+                                 command=self.button_callback,
                                  cursor="hand2",
-                                 name=kwargs["button"]["name"])
+                                 name=self.button_name)
         self.button.grid(row=row, column=2, sticky="w", padx=(0, 5), pady=(0, 5))
 
         # Create a Combobox
@@ -92,35 +147,65 @@ class EntryRow:
         self.checkbox = ttk.Checkbutton(parent,
                                         variable=self.checkbox_var,
                                         onvalue=1, offvalue=0,
-                                        takefocus=False,
-                                        # command=kwargs["checkbox"]["command"],
-                                        )
+                                        takefocus=False)
         self.checkbox.var = self.checkbox_var
-        self.checkbox_var.set(kwargs["checkbox"]["default"])
-        self.checkbox_var.trace_add("write", kwargs["checkbox"]["command"])
+        self.checkbox_var.set(self.checkbox_default)
+        self.checkbox_var.trace_add("write", self.checkbox_command)
         self.checkbox.grid(row=row, column=3, sticky="w", padx=(0, 5), pady=(0, 5))
-        if kwargs["checkbox"].get("state"):
-            self.checkbox.config(state=kwargs["checkbox"]["state"], cursor=kwargs["checkbox"]["cursor"])
+        if self.checkbox_state and self.checkbox_cursor:
+            self.checkbox.config(state=self.checkbox_state, cursor=self.checkbox_cursor)
+
+        self.thread = PropagatingThread(target=None, daemon=True)
+
+    def entry_callback(self, *args) -> None:
+        self.thread = PropagatingThread(target=self.entry_callback_fn, args=(str(self.entry.focus_get()),), daemon=True)
+        self.thread.start()
+
+    def button_callback(self) -> str | None:
+        filename = self.button_command(self.string_var, *self.button_args)
+        if filename:
+            if self.entry_name == "input_entry":
+                self.translator.input_file = filename
+            elif self.entry_name == "ref_entry":
+                self.translator.ref_file = filename
+        return filename
 
 
 class StatusRow:
     def __init__(self, parent: ttk.Frame, row: int, **kwargs):
-        """Create a row for each method in the application."""
+        """Create a row with label, status_label, button, and checkbox."""
 
-        # Create  a Label
-        self.label = ttk.Label(parent, text=kwargs["label"]["text"])
+        # Label Variables
+        self.label_text = kwargs["label"]["text"]
+
+        # Status Variables
+        self.status_text = kwargs["status"]["text"]
+        self.status_foreground = kwargs["status"]["foreground"]
+
+        # Button Variables
+        self.button_text = kwargs["button"]["text"]
+        self.button_command = kwargs["button"]["command"]
+
+        # Checkbox Variables
+        self.checkbox_default = kwargs["checkbox"].get("default", 0)
+        self.checkbox_command = kwargs["checkbox"]["command"]
+        self.checkbox_state = kwargs["checkbox"].get("state")
+        self.checkbox_cursor = kwargs["checkbox"].get("cursor")
+
+        # Create a Label
+        self.label = ttk.Label(parent, text=self.label_text)
         self.label.grid(row=row, column=0, sticky="e", padx=(0, 5), pady=(0, 5))
 
         # Create a status Label
         self.status = ttk.Label(parent,
-                                text=kwargs["status"]["text"],
-                                foreground=kwargs["status"]["foreground"],
+                                text=self.status_text,
+                                foreground=self.status_foreground,
                                 font=("Arial", 10, "bold"))
         self.status.grid(row=row, column=1, sticky="w", padx=(0, 5), pady=(0, 5))
 
         self.button = ttk.Button(parent,
-                                 text=kwargs["button"]["text"],
-                                 command=kwargs["button"]["command"],
+                                 text=self.button_text,
+                                 command=self.button_command,
                                  cursor="hand2")
         self.button.grid(row=row, column=2, sticky="w", padx=(0, 5), pady=(0, 5))
 
@@ -130,14 +215,13 @@ class StatusRow:
                                         variable=self.checkbox_var,
                                         onvalue=1, offvalue=0,
                                         takefocus=False,
-                                        # command=kwargs["checkbox"]["command"],
                                         )
         self.checkbox.var = self.checkbox_var
-        self.checkbox_var.set(kwargs["checkbox"]["default"])
-        self.checkbox_var.trace_add("write", kwargs["checkbox"]["command"])
+        self.checkbox_var.set(self.checkbox_default)
+        self.checkbox_var.trace_add("write", self.checkbox_command)
         self.checkbox.grid(row=row, column=3, sticky="w", padx=(0, 5), pady=(0, 5))
-        if kwargs["checkbox"].get("state"):
-            self.checkbox.config(state=kwargs["checkbox"]["state"], cursor=kwargs["checkbox"]["cursor"])
+        if self.checkbox_state and self.checkbox_cursor:
+            self.checkbox.config(state=self.checkbox_state, cursor=self.checkbox_cursor)
 
 
 class CredentialsWindow:
@@ -151,198 +235,154 @@ class CredentialsWindow:
                  **kwargs):
         """Create a window for credentials."""
 
-        self.__parent = parent
-        self.__title = title
-        self.__icon = icon
+        self.parent = parent
+        self.title = title
+        self.icon = icon
 
-        self.__app = app
-        self.__rows = rows
-        self.__translator = translator
+        self.app = app
+        self.rows = rows
+        self.translator = translator
 
-        self.__window = tk.Toplevel(self.__parent)
-        self.__window.title(self.__title)
+        self.window = tk.Toplevel(self.parent)
+        self.window.title(self.title)
 
-        self.__right_click_menu = tk.Menu(self.__window, tearoff=0)
-        self.right_click_fn()
+        self.right_click_menu = create_rmenu(self.window)
 
-        self.__window.focus_force()
-        self.__window.grab_set()
-        self.__window.focus_set()
-        self.__window.transient(self.__parent)
+        self.window.focus_force()
+        self.window.grab_set()
+        self.window.focus_set()
+        self.window.transient(self.parent)
 
         WIDTH = kwargs.get("width", 350)
         HEIGHT = kwargs.get("height", 230)
 
-        self.__window.geometry(
-            f'{WIDTH}x{HEIGHT}+{self.__parent.winfo_rootx() + 100}+{self.__parent.winfo_rooty() + 75}')
-        self.__window.resizable(False, False)
+        self.window.geometry(f'{WIDTH}x{HEIGHT}+{self.parent.winfo_rootx() + 100}+{self.parent.winfo_rooty() + 75}')
+        self.window.resizable(False, False)
 
-        self.__frame = ttk.Frame(self.__window)
+        self.__frame = ttk.Frame(self.window)
         self.__frame.pack(fill="both", expand=True)
 
-        self.__title_label = ttk.Label(self.__frame, text=self.__title, font=("Arial", 10, "bold"))
-        self.__title_label.grid(row=0, column=0, columnspan=2, padx=5, pady=5)
+        self.title_label = ttk.Label(self.__frame, text=self.title, font=("Arial", 10, "bold"))
+        self.title_label.grid(row=0, column=0, columnspan=2, padx=5, pady=5)
 
         # row = ["text", "default", "bold"]
-        self.__rows_contents = {}
-        for i, row in enumerate(self.__rows):
-            self.__rows_contents[row[0]] = {"label": ttk.Label(), "entry": ttk.Entry(), "entry_var": tk.StringVar()}
-            self.__rows_contents[row[0]]["label"] = ttk.Label(self.__frame,
-                                                              text=row[0],
-                                                              font=("Arial", 8, "bold" if row[2] else "normal"))
-            self.__rows_contents[row[0]]["label"].grid(row=i + 1, column=0, sticky="e", padx=5, pady=5)
+        self.elements = {}
+        self.entries_var = [StringVar() for _ in range(len(self.rows))]
+        for i, row in enumerate(self.rows):
+            self.entries_var.append(StringVar())
+            name, default, bold = row
 
-            self.__rows_contents[row[0]]["entry"] = ttk.Entry(self.__frame,
-                                                              textvariable=self.__rows_contents[row[0]]["entry_var"],
-                                                              width=37)
-            self.__rows_contents[row[0]]["entry"].bind("<Button-3>", self.right_click)
-            if "password" in row[0].lower():
-                self.__rows_contents[row[0]]["entry"].config(show="*")
-            self.__rows_contents[row[0]]["entry_var"].set(row[1])
-            self.__rows_contents[row[0]]["entry"].grid(row=i + 1, column=1, sticky="w", padx=5, pady=5)
+            self.elements[name] = {}
+            self.elements[name]["label"] = ttk.Label(self.__frame, text=name,
+                                                     font=("Arial", 8, "bold" if bold else "normal"))
+            self.elements[name]["label"].grid(row=i + 1, column=0, sticky="e", padx=5, pady=5)
+            self.elements[name]["entry"] = ttk.Entry(self.__frame, textvariable=self.entries_var[i], width=37)
+            self.elements[name]["entry"].bind("<Button-3>", self.right_click)
+            if "password" in name.lower():
+                self.elements[name]["entry"].config(show="*")
+            self.entries_var[i].set(default)
+            self.elements[name]["entry"].grid(row=i + 1, column=1, sticky="w", padx=5, pady=5)
 
-        self.__save_var = tk.IntVar()
-        self.__save_checkbox = ttk.Checkbutton(self.__frame,
-                                               text="Remember Me?",
-                                               variable=self.__save_var,
-                                               onvalue=1, offvalue=0,
-                                               cursor="hand2",
-                                               takefocus=False,
-                                               width=15)
-        self.__save_checkbox.grid(row=len(self.__rows) + 1, column=0, columnspan=2, sticky="w", padx=25, pady=5)
+        self.remember_me_var = tk.IntVar()
+        self.remember_checkbox = ttk.Checkbutton(self.__frame,
+                                                 text="Remember Me",
+                                                 variable=self.remember_me_var,
+                                                 onvalue=1, offvalue=0,
+                                                 cursor="hand2",
+                                                 takefocus=False,
+                                                 width=15)
+        self.remember_checkbox.grid(row=len(self.rows) + 1, column=0, columnspan=2, sticky="w", padx=25, pady=5)
 
         self.__buttons_frame = ttk.Frame(self.__frame)
-        self.__buttons_frame.grid(row=len(self.__rows) + 2, column=0, columnspan=2, padx=5, pady=5)
+        self.__buttons_frame.grid(row=len(self.rows) + 2, column=0, columnspan=2, padx=5, pady=5)
 
-        self.__save_button = ttk.Button(self.__buttons_frame,
-                                        text="Save",
-                                        command=self.save,
+        self.save_button = ttk.Button(self.__buttons_frame,
+                                      text="Save",
+                                      command=self.save,
+                                      cursor="hand2",
+                                      width=15)
+        self.save_button.grid(row=0, column=0, sticky="w", padx=(20, 5), pady=5)
+
+        self.cancel_button = ttk.Button(self.__buttons_frame,
+                                        text="Cancel",
+                                        command=self.destroy,
                                         cursor="hand2",
                                         width=15)
-        self.__save_button.grid(row=0, column=0, sticky="w", padx=(20, 5), pady=5)
-
-        self.__cancel_button = ttk.Button(self.__buttons_frame,
-                                          text="Cancel",
-                                          command=self.destroy,
-                                          cursor="hand2",
-                                          width=15)
-        self.__cancel_button.grid(row=0, column=1, sticky="e", padx=5, pady=5)
-
-    def right_click_fn(self) -> None:
-
-        # Create a right click functions
-        def cut():
-            widget = self.__window.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.event_generate("<<Cut>>")
-
-        def copy():
-            widget = self.__window.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.event_generate("<<Copy>>")
-
-        def paste():
-            widget = self.__window.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.event_generate("<<Paste>>")
-
-        def delete():
-            widget = self.__window.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.event_generate("<Delete>")
-
-        def select_all():
-            widget = self.__window.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.event_generate("<<SelectAll>>")
-
-        def clear_all():
-            widget = self.__window.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.delete(0, "end")
-
-        # Create a right click menu
-        self.__right_click_menu = tk.Menu(self.__window, tearoff=0)
-        self.__right_click_menu.add_command(label="Cut", command=cut)
-        self.__right_click_menu.add_command(label="Copy", command=copy)
-        self.__right_click_menu.add_command(label="Paste", command=paste)
-        self.__right_click_menu.add_command(label="Delete", command=delete)
-        self.__right_click_menu.add_separator()
-        self.__right_click_menu.add_command(label="Select All", command=select_all)
-        self.__right_click_menu.add_command(label="Clear All", command=clear_all)
+        self.cancel_button.grid(row=0, column=1, sticky="e", padx=5, pady=5)
 
     def right_click(self, event) -> None:
         event.widget.focus()
-        self.__right_click_menu.tk_popup(event.x_root, event.y_root)
+        self.right_click_menu.tk_popup(event.x_root, event.y_root)
 
-    def save(self, remember: int = 0) -> bool | None:
-        self.__save_button.config(state="disabled", cursor="arrow")
-        self.__cancel_button.config(state="disabled", cursor="arrow")
-        self.__window.protocol("WM_DELETE_WINDOW", lambda: False)
+    def save(self) -> bool | None:
+        self.save_button.config(state="disabled", cursor="arrow")
+        self.cancel_button.config(state="disabled", cursor="arrow")
+        self.window.protocol("WM_DELETE_WINDOW", lambda: False)
 
         __strings = []
-        remember = self.__save_var.get()
-        for key, value in self.__rows_contents.items():
-            __strings.append(value["entry_var"].get().strip())
+        remember = self.remember_me_var.get()
+        for value in self.entries_var:
+            __strings.append(value.get().strip())
 
-        if self.__app in ["pan", "forti", "apic"]:
+        if self.app in ["pan", "forti", "apic"]:
             __connected = None
-            if self.__app in ["pan", "apic"]:
+            if self.app in ["pan", "apic"]:
                 __ip = __strings[0]
                 __username = __strings[1]
                 __password = __strings[2]
                 __vsys = __strings[3]
 
-                if self.__app == "apic" and not __vsys:
+                if self.app == "apic" and not __vsys:
                     messagebox.showerror("Error",
                                          "Class(es) can not be empty.",
-                                         parent=self.__window)
-                    self.__save_button.config(state="normal", cursor="hand2")
-                    self.__cancel_button.config(state="normal", cursor="hand2")
-                    self.__window.protocol("WM_DELETE_WINDOW", self.destroy)
+                                         parent=self.window)
+                    self.save_button.config(state="normal", cursor="hand2")
+                    self.cancel_button.config(state="normal", cursor="hand2")
+                    self.window.protocol("WM_DELETE_WINDOW", self.destroy)
                     return False
 
-                if self.__app == "pan":
-                    __connected = PropagatingThread(target=self.__translator.connect_pan,
+                if self.app == "pan":
+                    __connected = PropagatingThread(target=self.translator.connect_pan,
                                                     kwargs={"ip": __ip,
                                                             "username": __username,
                                                             "password": __password,
                                                             "vsys": __vsys,
-                                                            "window": self.__window},
+                                                            "window": self.window},
                                                     daemon=True,
                                                     name="connect_pan")
-                elif self.__app == "apic":
-                    __connected = PropagatingThread(target=self.__translator.connect_apic,
+                elif self.app == "apic":
+                    __connected = PropagatingThread(target=self.translator.connect_apic,
                                                     kwargs={"ip": __ip,
                                                             "username": __username,
                                                             "password": __password,
                                                             "apic_class": __vsys,
-                                                            "window": self.__window},
+                                                            "window": self.window},
                                                     daemon=True,
                                                     name="connect_apic")
 
-            elif self.__app == "forti":
+            elif self.app == "forti":
                 __ip = __strings[0]
                 __port = __strings[1]
                 __username = __strings[2]
                 __password = __strings[3]
                 __vdom = __strings[4]
 
-                __connected = PropagatingThread(target=self.__translator.connect_forti,
+                __connected = PropagatingThread(target=self.translator.connect_forti,
                                                 kwargs={"ip": __ip,
                                                         "port": __port,
                                                         "username": __username,
                                                         "password": __password,
                                                         "vdom": __vdom,
-                                                        "window": self.__window},
+                                                        "window": self.window},
                                                 daemon=True,
                                                 name="connect_forti")
 
             __connected.start()
             while __connected.is_alive():
-                self.__window.update()
-                self.__parent.update()
+                self.window.update()
+                self.parent.update()
                 time.sleep(0.1)
+
             __connected = __connected.join()
 
             if not __connected:
@@ -350,41 +390,47 @@ class CredentialsWindow:
                                               "Connection failed, do you want to save the credentials anyway?",
                                               icon="warning",
                                               default="no",
-                                              parent=self.__window):
-                    self.__save_button.config(state="normal", cursor="hand2")
-                    self.__cancel_button.config(state="normal", cursor="hand2")
-                    self.__window.protocol("WM_DELETE_WINDOW", self.destroy)
+                                              parent=self.window):
+                    self.save_button.config(state="normal", cursor="hand2")
+                    self.cancel_button.config(state="normal", cursor="hand2")
+                    self.window.protocol("WM_DELETE_WINDOW", self.destroy)
                     return False
 
-            if self.__app == "pan":
-                self.__translator.pan_ip = __ip
-                self.__translator.pan_username = __username
-                self.__translator.pan_password = __password
-                self.__translator.pan_vsys = __vsys
+            if self.app == "pan":
+                self.translator.pan_ip = __ip
+                self.translator.pan_username = __username
+                self.translator.pan_password = __password
+                self.translator.pan_vsys = __vsys
+                if not __connected:
+                    self.translator.pan_addresses = []
 
                 if remember:
-                    self.__translator.save_credentials(app="pan")
+                    self.translator.save_credentials(app="pan")
 
-            elif self.__app == "forti":
-                self.__translator.forti_ip = __ip
-                self.__translator.forti_port = __port
-                self.__translator.forti_username = __username
-                self.__translator.forti_password = __password
-                self.__translator.forti_vdom = __vdom
-
-                if remember:
-                    self.__translator.save_credentials(app="forti")
-
-            elif self.__app == "apic":
-                self.__translator.apic_ip = __ip
-                self.__translator.apic_username = __username
-                self.__translator.apic_password = __password
-                self.__translator.apic_class = __vsys
+            elif self.app == "forti":
+                self.translator.forti_ip = __ip
+                self.translator.forti_port = __port
+                self.translator.forti_username = __username
+                self.translator.forti_password = __password
+                self.translator.forti_vdom = __vdom
+                if not __connected:
+                    self.translator.forti_addresses = []
 
                 if remember:
-                    self.__translator.save_credentials(app="apic")
+                    self.translator.save_credentials(app="forti")
 
-        elif self.__app == "dns":
+            elif self.app == "apic":
+                self.translator.apic_ip = __ip
+                self.translator.apic_username = __username
+                self.translator.apic_password = __password
+                self.translator.apic_class = __vsys
+                if not __connected:
+                    self.translator.apic_addresses = []
+
+                if remember:
+                    self.translator.save_credentials(app="apic")
+
+        elif self.app == "dns":
             __servers = __strings.copy()
 
             for i in range(3, -1, -1):
@@ -396,20 +442,20 @@ class CredentialsWindow:
             if not __servers:
                 messagebox.showerror("Error",
                                      "DNS servers can not be empty.",
-                                     parent=self.__window)
-                self.__save_button.config(state="normal", cursor="hand2")
-                self.__cancel_button.config(state="normal", cursor="hand2")
-                self.__window.protocol("WM_DELETE_WINDOW", self.destroy)
+                                     parent=self.window)
+                self.save_button.config(state="normal", cursor="hand2")
+                self.cancel_button.config(state="normal", cursor="hand2")
+                self.window.protocol("WM_DELETE_WINDOW", self.destroy)
                 return False
 
-            __connected = PropagatingThread(target=self.__translator.check_dns_servers,
+            __connected = PropagatingThread(target=self.translator.check_dns_servers,
                                             args=(__servers,),
                                             daemon=True,
                                             name="check_dns_servers")
             __connected.start()
             while __connected.is_alive():
-                self.__window.update()
-                self.__parent.update()
+                self.window.update()
+                self.parent.update()
                 time.sleep(0.1)
             __good_servers = __connected.join()
 
@@ -422,115 +468,93 @@ class CredentialsWindow:
                 if not messagebox.askyesno("Error",
                                            "No reachable DNS servers found, do you want to save these servers anyway?",
                                            icon="error",
-                                           parent=self.__window):
-                    self.__save_button.config(state="normal", cursor="hand2")
-                    self.__cancel_button.config(state="normal", cursor="hand2")
-                    self.__window.protocol("WM_DELETE_WINDOW", self.destroy)
+                                           parent=self.window):
+                    self.save_button.config(state="normal", cursor="hand2")
+                    self.cancel_button.config(state="normal", cursor="hand2")
+                    self.window.protocol("WM_DELETE_WINDOW", self.destroy)
                     return False
 
             elif len(__bad_servers):
                 if not messagebox.askyesno("Warning",
                                            f"Invalid DNS servers found:\n    {'\n    '.join(__bad_servers)}\n\nDo you want to save the servers anyway?",
                                            icon="warning",
-                                           parent=self.__window):
-                    self.__save_button.config(state="normal", cursor="hand2")
-                    self.__cancel_button.config(state="normal", cursor="hand2")
-                    self.__window.protocol("WM_DELETE_WINDOW", self.destroy)
+                                           parent=self.window):
+                    self.save_button.config(state="normal", cursor="hand2")
+                    self.cancel_button.config(state="normal", cursor="hand2")
+                    self.window.protocol("WM_DELETE_WINDOW", self.destroy)
                     return False
 
-            self.__translator.dns_servers = __servers.copy()
-            self.__translator.resolvers = __good_servers.copy()
+            self.translator.dns_servers = __servers.copy()
+            self.translator.resolvers = __good_servers.copy()
 
             if remember:
-                self.__translator.save_credentials(app="dns")
+                self.translator.save_credentials(app="dns")
 
         self.destroy()
 
     def destroy(self) -> None:
-        self.__window.destroy()
-        self.__parent.attributes('-disabled', False)
-        self.__parent.update()
-        self.__parent.focus_force()
+        self.window.destroy()
+        self.parent.attributes('-disabled', False)
+        self.parent.update()
+        self.parent.focus_force()
 
     def mainloop(self) -> None:
-        if self.__app == "pan":
-            if all([self.__translator.pan_ip == "",
-                    self.__translator.pan_username == "",
-                    self.__translator.pan_password == ""]):
-                self.__translator.import_credentials("pan")
-
-        elif self.__app == "forti":
-            if all([self.__translator.forti_ip == "",
-                    self.__translator.forti_username == "",
-                    self.__translator.forti_password == ""]):
-                self.__translator.import_credentials("forti")
-
-        elif self.__app == "apic":
-            if all([self.__translator.apic_ip == "",
-                    self.__translator.apic_username == "",
-                    self.__translator.apic_password == ""]):
-                self.__translator.import_credentials("apic")
-
-        elif self.__app == "dns":
-            if not self.__translator.dns_servers:
-                self.__translator.import_credentials("dns")
-
-        self.__parent.attributes('-disabled', True)
-        self.__window.protocol("WM_DELETE_WINDOW", self.destroy)
-        self.__window.bind('<Escape>', self.destroy)
-        self.__window.bind('<Return>', self.save)
-        self.__window.iconphoto(False, self.__icon)
-        self.__window.mainloop()
+        self.parent.attributes('-disabled', True)
+        self.window.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.window.bind('<Escape>', self.destroy)
+        self.window.bind('<Return>', self.save)
+        self.window.iconphoto(False, self.icon)
+        self.window.mainloop()
 
 
 class GUI:
-    """A class that represent the windows gui of the application."""
+    """A class that represents the windows gui of the application."""
 
     def __init__(self,
                  name: str = "IP Address Translator",
                  short_name: str = "IAT",
-                 version: str = "1.0",
+                 version: str = "1.5",
                  width: int = 550,
                  height: int = 490,
-                 resizable: tuple[bool, bool] = (False, False),
                  icon_data: str = utilities.ICON_DATA,
                  *args, **kwargs):
         """Initialize the GUI class."""
+        self.DEBUG = False
 
-        self.__name: str = name
-        self.__short_name: str = short_name
-        self.__version: str = version
+        self.name: str = name
+        self.shorten_name: str = short_name
+        self.version: str = version
 
         self.__width: int = width
         self.__height: int = height
-        self.__resizable: tuple[bool, bool] = resizable
+        self.__resizable: tuple[bool, bool] = (False, False)
         self.__args = args
         self.__kwargs = kwargs
 
-        self.__author: str = "xAbdalla"
-        self.__github_link: str = "https://github.com/xAbdalla"
+        self.author: str = "xAbdalla"
+        self.github_link: str = "https://github.com/xAbdalla"
+        self.github_repo_link: str = f"{self.github_link}/{self.name.replace(" ", "_")}"
 
-        self.__full_name: str = f"{self.__name} ({self.__short_name})"
-        self.__title: str = f"{self.__full_name} v{self.__version} by {self.__author}"
-        self.__title_label: str = f"{self.__name} v{self.__version}"
+        self.full_name: str = f"{self.name} ({self.shorten_name})"
+        self.title: str = f"{self.full_name} v{self.version} by {self.author}"
+        self.title_label: str = f"{self.name} v{self.version}"
 
-        self.__root: tk.Tk = tk.Tk()
-        self.__root.title(self.__title)
+        self.root: tk.Tk = tk.Tk()
+        self.root.title(self.title)
 
-        self.__icon: tk.PhotoImage = tk.PhotoImage(data=b64decode(icon_data))
-        self.__github_icon: tk.PhotoImage = tk.PhotoImage(data=b64decode(utilities.GITHUB_ICON_DATA))
-        self.__github_icon = self.__github_icon.zoom(1).subsample(18)
+        self.icon: tk.PhotoImage = tk.PhotoImage(data=b64decode(icon_data))
+        self.github_icon: tk.PhotoImage = tk.PhotoImage(data=b64decode(utilities.GITHUB_ICON_DATA))
+        self.github_icon = self.github_icon.zoom(1).subsample(18)
 
-        self.__info_icon: tk.PhotoImage = tk.PhotoImage(data=b64decode(utilities.INFO_ICON_DATA))
-        self.__info_icon = self.__info_icon.zoom(2).subsample(13)
+        self.info_icon: tk.PhotoImage = tk.PhotoImage(data=b64decode(utilities.INFO_ICON_DATA))
+        self.info_icon = self.info_icon.zoom(2).subsample(13)
 
-        self.__SCREEN_WIDTH = self.__root.winfo_screenwidth()
-        self.__SCREEN_HEIGHT = self.__root.winfo_screenheight()
+        self.__SCREEN_WIDTH = self.root.winfo_screenwidth()
+        self.__SCREEN_HEIGHT = self.root.winfo_screenheight()
 
-        self.__right_click_menu = tk.Menu(self.__root, tearoff=0)
-        self.right_click_fn()
+        self.right_click_menu = create_rmenu(self.root)
 
-        self.log = tk.StringVar()
+        self.log = StringVar()
         if self.__kwargs.get("log"):
             self.log.trace_add("write", self.write_logs)
 
@@ -540,15 +564,15 @@ class GUI:
             #         os.remove("logs.txt")
         self.log.set("INFO - Application started.")
 
-        self.IPTranslator: IPTranslator = IPTranslator()
-        self.IPTranslator.parent = self
-        self.__start_thread: PropagatingThread | None = None
-        self.__start_flag: bool = False
-        self.__stop_flag: bool = False
-        self.__methods_flags: list[bool] = [False for _ in range(5)]
+        self.IPTranslator: IPTranslator = IPTranslator(parent=self, debug=self.DEBUG)
+        self.start_thread: PropagatingThread | None = None
+        self.start_flag: bool = False
+        self.pause_flag: bool = False
+        self.stop_flag: bool = False
+        self.methods_flags: list[bool] = [False for _ in range(5)]
 
         self.info_type_label = None
-        self.msg_text = tk.StringVar()
+        self.msg_text = StringVar()
         self.info_msg_label = None
         self.input_row = None
         self.ref_row = None
@@ -564,66 +588,9 @@ class GUI:
 
     #######################################################
 
-    def start_status(self) -> bool:
-        return self.__start_flag
-
-    def stop_status(self) -> bool:
-        return self.__stop_flag
-
-    def get_root(self) -> tk.Tk:
-        return self.__root
-
-    def get_methods_flags(self) -> list[bool]:
-        return self.__methods_flags
-
-    #######################################################
-
-    def right_click_fn(self) -> None:
-
-        # Create a right click functions
-        def cut():
-            widget = self.__root.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.event_generate("<<Cut>>")
-
-        def copy():
-            widget = self.__root.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.event_generate("<<Copy>>")
-
-        def paste():
-            widget = self.__root.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.event_generate("<<Paste>>")
-
-        def delete():
-            widget = self.__root.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.event_generate("<Delete>")
-
-        def select_all():
-            widget = self.__root.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.event_generate("<<SelectAll>>")
-
-        def clear_all():
-            widget = self.__root.focus_get()
-            if isinstance(widget, tk.Entry):
-                widget.delete(0, "end")
-
-        # Create a right click menu
-        self.__right_click_menu = tk.Menu(self.__root, tearoff=0)
-        self.__right_click_menu.add_command(label="Cut", command=cut)
-        self.__right_click_menu.add_command(label="Copy", command=copy)
-        self.__right_click_menu.add_command(label="Paste", command=paste)
-        self.__right_click_menu.add_command(label="Delete", command=delete)
-        self.__right_click_menu.add_separator()
-        self.__right_click_menu.add_command(label="Select All", command=select_all)
-        self.__right_click_menu.add_command(label="Clear All", command=clear_all)
-
     def right_click(self, event) -> None:
         event.widget.focus()
-        self.__right_click_menu.tk_popup(event.x_root, event.y_root)
+        self.right_click_menu.tk_popup(event.x_root, event.y_root)
 
     def write_logs(self, *arg):
         log = self.log.get()
@@ -633,72 +600,80 @@ class GUI:
             else:
                 f.write(f"{"=" * 50}\n")
 
-    def disable_all_buttons(self) -> None:
-        self.__root.protocol("WM_DELETE_WINDOW", self.stop)
+    def disable_buttons(self, button: str = "") -> None:
+        if button == "all":
+            self.root.protocol("WM_DELETE_WINDOW", self.stop)
+            button = ""
 
-        self.input_row.entry.config(state="disabled", cursor="arrow")
-        self.input_row.button.config(state="disabled", cursor="arrow")
+        if button in ["input", ""]:
+            self.input_row.button.config(state="disabled", cursor="arrow")
+            self.input_row.entry.config(state="disabled", cursor="arrow")
+            self.input_row.entry.unbind("<FocusOut>")
+        if button in ["ref", ""]:
+            self.ref_row.button.config(state="disabled", cursor="arrow")
+            self.ref_row.entry.config(state="disabled", cursor="arrow")
+            self.ref_row.checkbox.config(state="disabled", cursor="arrow")
+            self.ref_row.entry.unbind("<FocusOut>")
+        if button in ["pan", ""]:
+            self.pan_row.button.config(state="disabled", cursor="arrow")
+            self.pan_row.checkbox.config(state="disabled", cursor="arrow")
+        if button in ["forti", ""]:
+            self.forti_row.button.config(state="disabled", cursor="arrow")
+            self.forti_row.checkbox.config(state="disabled", cursor="arrow")
+        if button in ["apic", ""]:
+            self.apic_row.button.config(state="disabled", cursor="arrow")
+            self.apic_row.checkbox.config(state="disabled", cursor="arrow")
+        if button in ["dns", ""]:
+            self.dns_row.button.config(state="disabled", cursor="arrow")
+            self.dns_row.checkbox.config(state="disabled", cursor="arrow")
 
-        self.ref_row.entry.config(state="disabled", cursor="arrow")
-        self.ref_row.button.config(state="disabled", cursor="arrow")
-        self.ref_row.checkbox.config(state="disabled", cursor="arrow")
+        if not self.start_flag:
+            self.start_button.config(state="disabled", cursor="arrow")
+            self.root.unbind("<Return>")
 
-        self.pan_row.button.config(state="disabled", cursor="arrow")
-        self.pan_row.checkbox.config(state="disabled", cursor="arrow")
+    def enable_buttons(self, button: str = "") -> None:
+        if button == "all":
+            self.root.protocol("WM_DELETE_WINDOW", self.destroy)
+            button = ""
 
-        self.forti_row.button.config(state="disabled", cursor="arrow")
-        self.forti_row.checkbox.config(state="disabled", cursor="arrow")
+        if button in ["input", ""]:
+            if button == "input" or (self.input_row.thread and not self.input_row.thread.is_alive()):
+                self.input_row.button.config(state="normal", cursor="hand2")
+                self.input_row.entry.config(state="normal", cursor="xterm")
+                self.input_row.entry.bind("<FocusOut>", self.input_row.entry_callback)
+        if button in ["ref", ""]:
+            if button == "ref" or (self.ref_row.thread and not self.ref_row.thread.is_alive()):
+                self.ref_row.button.config(state="normal", cursor="hand2")
+                self.ref_row.entry.config(state="normal", cursor="xterm")
+                self.ref_row.checkbox.config(state="normal", cursor="hand2")
+                self.ref_row.entry.bind("<FocusOut>", self.ref_row.entry_callback)
+        if button in ["pan", ""]:
+            if self.pan_row.button["text"] == "Connect":
+                self.pan_row.button.config(state="normal", cursor="hand2")
+                self.pan_row.checkbox.config(state="normal", cursor="hand2")
+        if button in ["forti", ""]:
+            if self.forti_row.button["text"] == "Connect":
+                self.forti_row.button.config(state="normal", cursor="hand2")
+                self.forti_row.checkbox.config(state="normal", cursor="hand2")
+        if button in ["apic", ""]:
+            if self.apic_row.button["text"] == "Connect":
+                self.apic_row.button.config(state="normal", cursor="hand2")
+                self.apic_row.checkbox.config(state="normal", cursor="hand2")
+        if button in ["dns", ""]:
+            if self.dns_row.button["text"] == "Check":
+                self.dns_row.button.config(state="normal", cursor="hand2")
+                self.dns_row.checkbox.config(state="normal", cursor="hand2")
 
-        self.apic_row.button.config(state="disabled", cursor="arrow")
-        self.apic_row.checkbox.config(state="disabled", cursor="arrow")
+        __input = str(self.input_row.button["state"]) == "normal"
+        __ref = str(self.ref_row.button["state"]) == "normal"
+        __pan = str(self.pan_row.button["state"]) == "normal"
+        __forti = str(self.forti_row.button["state"]) == "normal"
+        __apic = str(self.apic_row.button["state"]) == "normal"
+        __dns = str(self.dns_row.button["state"]) == "normal"
 
-        self.dns_row.button.config(state="disabled", cursor="arrow")
-        self.dns_row.checkbox.config(state="disabled", cursor="arrow")
-
-    def enable_all_buttons(self) -> None:
-        self.__root.protocol("WM_DELETE_WINDOW", self.destroy)
-
-        self.input_row.entry.config(state="normal", cursor="xterm")
-        self.input_row.button.config(state="normal", cursor="hand2")
-
-        self.ref_row.entry.config(state="normal", cursor="xterm")
-        self.ref_row.button.config(state="normal", cursor="hand2")
-        self.ref_row.checkbox.config(state="normal", cursor="hand2")
-
-        self.pan_row.button.config(state="normal", cursor="hand2")
-        self.pan_row.checkbox.config(state="normal", cursor="hand2")
-
-        self.forti_row.button.config(state="normal", cursor="hand2")
-        self.forti_row.checkbox.config(state="normal", cursor="hand2")
-
-        self.apic_row.button.config(state="normal", cursor="hand2")
-        self.apic_row.checkbox.config(state="normal", cursor="hand2")
-
-        self.dns_row.button.config(state="normal", cursor="hand2")
-        self.dns_row.checkbox.config(state="normal", cursor="hand2")
-
-    def disable_connect_buttons(self) -> None:
-        self.pan_row.button.config(state="disabled", cursor="arrow")
-        self.forti_row.button.config(state="disabled", cursor="arrow")
-        self.apic_row.button.config(state="disabled", cursor="arrow")
-        self.dns_row.button.config(state="disabled", cursor="arrow")
-        self.start_button.config(state="disabled", cursor="arrow")
-
-    def enable_connect_buttons(self) -> None:
-        __pan = self.pan_row.button["text"] == "Connect"
-        __forti = self.forti_row.button["text"] == "Connect"
-        __apic = self.apic_row.button["text"] == "Connect"
-        __dns = self.dns_row.button["text"] == "Check"
-
-        if all([__pan, __forti, __apic, __dns]):
-            self.pan_row.button.config(state="normal", cursor="hand2")
-            self.forti_row.button.config(state="normal", cursor="hand2")
-            self.apic_row.button.config(state="normal", cursor="hand2")
-            self.dns_row.button.config(state="normal", cursor="hand2")
-            if True in self.__methods_flags:
-                self.start_button.config(state="normal", cursor="hand2")
-        else:
-            self.disable_connect_buttons()
+        if all([__input, __ref, __pan, __forti, __apic, __dns, True in self.methods_flags]):
+            self.start_button.config(state="normal", cursor="hand2")
+            self.root.bind("<Return>", self.start)
 
     def set_info_status(self, status: str, foreground: str, cursor: str) -> None:
         """Set the status of the info label."""
@@ -711,50 +686,45 @@ class GUI:
 
     def check_methods(self, event=None, *args) -> bool:
         if self.ref_row.checkbox_var.get():
-            self.__methods_flags[0] = True
+            self.methods_flags[0] = True
         else:
-            self.__methods_flags[0] = False
+            self.methods_flags[0] = False
 
         if self.pan_row.checkbox_var.get():
-            self.__methods_flags[1] = True
+            self.methods_flags[1] = True
         else:
-            self.__methods_flags[1] = False
+            self.methods_flags[1] = False
 
         if self.forti_row.checkbox_var.get():
-            self.__methods_flags[2] = True
+            self.methods_flags[2] = True
         else:
-            self.__methods_flags[2] = False
+            self.methods_flags[2] = False
 
         if self.apic_row.checkbox_var.get():
-            self.__methods_flags[3] = True
+            self.methods_flags[3] = True
         else:
-            self.__methods_flags[3] = False
+            self.methods_flags[3] = False
 
         if self.dns_row.checkbox_var.get():
-            self.__methods_flags[4] = True
+            self.methods_flags[4] = True
         else:
-            self.__methods_flags[4] = False
+            self.methods_flags[4] = False
 
-        if True in self.__methods_flags:
-            if not self.__start_flag:
+        if True in self.methods_flags:
+            if not self.start_flag:
                 self.set_info_status("INFO", "green", "arrow")
                 self.set_info_message("Click the (Start) button to start the translation process",
                                       "green", "arrow")
 
-            if (str(self.pan_row.button["state"]) == "normal" and
-                    str(self.forti_row.button["state"]) == "normal" and
-                    str(self.apic_row.button["state"]) == "normal" and
-                    str(self.dns_row.button["state"]) == "normal"):
-                self.start_button.config(state="normal", cursor="hand2")
-                self.__root.bind("<Return>", self.start)
+            self.enable_buttons("start")
             return True
 
-        if not self.__start_flag:
+        if not self.start_flag:
             self.set_info_status("INFO", "green", "arrow")
             self.set_info_message("Please select one searching method at least",
                                   "red", "arrow")
-        self.start_button.config(state="disabled", cursor="arrow")
-        self.__root.unbind("<Return>")
+
+        self.disable_buttons("start")
         return False
 
     #######################################################
@@ -762,55 +732,56 @@ class GUI:
     def info_window(self) -> None:
         def destroy_info_window(event=None):
             info_window.destroy()
-            self.__root.attributes('-disabled', False)
-            self.__root.update()
-            self.__root.focus_force()
+            self.root.attributes('-disabled', False)
+            self.root.update()
+            self.root.focus_force()
 
         font_bold = ("Arial", 10, "bold")
         font_normal = ("Arial", 10)
 
-        objective_text = f"""{self.__name} application assists you in mapping IPs from network logs to descriptive \
+        objective_text = f"""{self.name} application assists you in mapping IPs from network logs to descriptive \
 object names or domain names, making log analysis more straightforward."""
         features_text = f"""➞ Various Input Options:
-      • Accepts Excel/CSV/Text files.
-      • Direct input of single IP address, subnet, range, or list (comma separated).
+      • Accepts Excel, CSV, or Text files.
+      • Direct input of a single IP address, subnet, range, or list of them separated by comma.
 
 ➞ Files Specifications:
+      • All files must have its proper extension.
       • Input Text files must have one subnet per line.
       • Input CSV files must have a column named 'Subnet'.
-      • Input Excel files could have multiple sheets, each must containing a column named 'Subnet'.
+      • Input Excel files could have multiple sheets; each must contain a column named 'Subnet'.
       • Reference CSV files require three columns: 'Tenant', 'Address object', and 'Subnet'.
-      • Reference Excel files could have multiple sheets, each must containing the three columns.
+      • Reference Excel files could have multiple sheets, each must contain the three columns.
 
 ➞ Various Searching Methods:
       • Reference File: Searches for matches in a user-provided reference file.
-      • Palo Alto: Connects via SSH to Panorama to import address objects.
-      • Fortinet: Connects via REST API to FortiGate to import address objects.
-      • Cisco ACI: Connects via SSH to APIC to import address objects based on the specified Class.
-      • Reverse DNS: Resolves IPs to domain names using the reverse DNS servers.
+      • Palo Alto: Connects via Palo Alto device REST API to import address objects.
+      • Fortinet: Connects via FortiGate REST API to retrieve address objects.
+      • Cisco ACI: Connects via SSH to APIC and import address objects based on the specified Class.
+      • Reverse DNS: Resolves IPs to domain names using the PTR records.
 
-➞ Palo Alto Panorama/FW Specifications:
-      • Ensure Panorama/Firewall is reachable and has CLI access.
-      • Leave "VSYS" field empty if you want to retrieve address objects from all virtual systems.
-      • The program may fail to import the addresses due to slow response, just try again until it works.
+➞ Palo Alto Device Specifications:
+      • Ensure Panorama/Firewall is reachable and you have REST API access/enable.
+      • Leave "VSYS" field empty if you want to import address objects from all virtual systems.
 
 ➞ Fortinet FortiGate Specifications:
-      • Ensure FortiGate is reachable and you have REST API enabled.
-      • Leave "VDOM" field empty if you want to retrieve address objects from all virtual domains.
+      • Ensure FortiGate is reachable and you have REST API access/enable.
+      • Leave "VDOM" field empty if you want to import address objects from all virtual domains.
 
 ➞ Cisco ACI Specifications:
       • Ensure APIC is reachable and has CLI access.
-      • Specify the Class of the address objects to be searched.
+      • Specify the Class(es) of the address objects to be searched.
       • The program searches the "dn" attribute exclusively.
 
 ➞ DNS Resolver:
-      • Resolves IPs to domain names using the system dns servers or a user-provided DNS servers.
+      • Resolves IPs to domain names using the system DNS servers or a user-provided DNS servers.
       • You can specify up to four DNS servers.
 
-➞ Private Information Storage:
-      • An option to save your credentials for future use and avoid re-entering them.
-      • Stored information are encrypted.
-      • Credentials are stored locally in the application directory.
+➞ Invalid objects:
+      • FQDN Objects.
+      • Object name is a valid IP or subnet.
+      • Object name is "network_" and a valid IP or subnet.
+      • Object address is 0.0.0.0/0 or 0.0.0.0/32.
 
 ➞ Encrypted Credentials Storage:
       • An option to save your credentials for future use and avoid re-entering them.
@@ -841,17 +812,17 @@ object names or domain names, making log analysis more straightforward."""
 • Review the logs for detailed information about the operation.
 • For any issues or inquiries, please contact the author."""
 
-        info_window = tk.Toplevel(self.__root)
+        info_window = tk.Toplevel(self.root)
         info_window.title("Help")
         info_window.focus_force()
         info_window.grab_set()
         info_window.focus_set()
-        info_window.transient(self.__root)
-        self.__root.attributes('-disabled', True)
+        info_window.transient(self.root)
+        self.root.attributes('-disabled', True)
 
-        info_window.geometry(f'{665}x{580}+{self.__root.winfo_rootx() - 65}+{self.__root.winfo_rooty() - 100}')
+        info_window.geometry(f'{665}x{580}+{self.root.winfo_rootx() - 65}+{self.root.winfo_rooty() - 100}')
         info_window.resizable(False, False)
-        info_window.iconphoto(False, self.__info_icon)
+        info_window.iconphoto(False, self.info_icon)
 
         info_frame = VerticalScrolledFrame(info_window)
         info_frame.pack(fill="both", expand=True)
@@ -880,7 +851,7 @@ object names or domain names, making log analysis more straightforward."""
                                wraplength=620)
         usage_text.pack(pady=0, padx=20, anchor="w")
 
-        author_label = ttk.Label(info_frame.interior, text=f"{self.__title}", font=font_bold)
+        author_label = ttk.Label(info_frame.interior, text=f"{self.title}", font=font_bold)
         author_label.pack(pady=(10, 0), padx=10, anchor="w")
 
         feedback_label = ttk.Label(info_frame.interior, text=f"Feel free to provide feedback or report issues.",
@@ -890,8 +861,7 @@ object names or domain names, making log analysis more straightforward."""
         github_label = ttk.Label(info_frame.interior, text=f"GitHub",
                                  font=font_bold, cursor="hand2", foreground="blue")
         github_label.pack(pady=(0, 5), padx=10, anchor="w")
-        github_label.bind("<Button-1>",
-                          lambda e: webbrowser.open_new(f"{self.__github_link}/{self.__name.replace(" ", "_")}"))
+        github_label.bind("<Button-1>", lambda e: webbrowser.open_new(self.github_repo_link))
 
         s2 = ttk.Style()
         s2.configure("close.TButton", font=font_bold)
@@ -921,12 +891,12 @@ object names or domain names, making log analysis more straightforward."""
             ["VSYS:", self.IPTranslator.pan_vsys, False]
         ]
 
-        __pan_window = CredentialsWindow(parent=self.__root,
+        __pan_window = CredentialsWindow(parent=self.root,
                                          title="PAN Credentials",
                                          app="pan",
                                          rows=__rows,
                                          translator=self.IPTranslator,
-                                         icon=self.__icon,
+                                         icon=self.icon,
                                          width=320,
                                          height=230
                                          )
@@ -950,12 +920,12 @@ object names or domain names, making log analysis more straightforward."""
             ["VDOM:", self.IPTranslator.forti_vdom, False]
         ]
 
-        __forti_window = CredentialsWindow(parent=self.__root,
+        __forti_window = CredentialsWindow(parent=self.root,
                                            title="Forti Credentials",
                                            app="forti",
                                            rows=__rows,
                                            translator=self.IPTranslator,
-                                           icon=self.__icon,
+                                           icon=self.icon,
                                            width=320,
                                            height=260
                                            )
@@ -978,12 +948,12 @@ object names or domain names, making log analysis more straightforward."""
             ["Class:", self.IPTranslator.apic_class, True]
         ]
 
-        __apic_window = CredentialsWindow(parent=self.__root,
+        __apic_window = CredentialsWindow(parent=self.root,
                                           title="APIC Credentials",
                                           app="apic",
                                           rows=__rows,
                                           translator=self.IPTranslator,
-                                          icon=self.__icon,
+                                          icon=self.icon,
                                           width=320,
                                           height=230
                                           )
@@ -1002,12 +972,12 @@ object names or domain names, making log analysis more straightforward."""
             ["Server 4:", self.IPTranslator.dns_servers[3], False]
         ]
 
-        __dns_window = CredentialsWindow(parent=self.__root,
+        __dns_window = CredentialsWindow(parent=self.root,
                                          title="DNS Servers",
                                          app="dns",
                                          rows=__rows,
                                          translator=self.IPTranslator,
-                                         icon=self.__icon,
+                                         icon=self.icon,
                                          width=305,
                                          height=230
                                          )
@@ -1017,17 +987,17 @@ object names or domain names, making log analysis more straightforward."""
 
     def pre_start(self) -> None:
         self.post_start()
-        self.__start_flag = True
-        self.__stop_flag = False
-        self.IPTranslator.__stop = False
+        self.start_flag = True
+        self.pause_flag = False
+        self.stop_flag = False
 
         s = ttk.Style()
         s.configure("start.TButton", font=("Arial bold", 15), foreground="red")
 
         self.start_button.config(text="Stop", state="normal", style="start.TButton", command=self.stop, cursor="hand2")
-        self.__root.bind("<Return>", self.stop)
+        self.root.bind("<Return>", self.stop)
 
-        self.disable_all_buttons()
+        self.disable_buttons("all")
 
     def start(self, event=None) -> bool:
         self.pre_start()
@@ -1040,7 +1010,7 @@ object names or domain names, making log analysis more straightforward."""
                                                daemon=True)
             __input_thread.start()
             while __input_thread.is_alive():
-                self.__root.update()
+                self.root.update()
                 time.sleep(0.1)
             __input = __input_thread.join()
             if not __input:
@@ -1059,27 +1029,27 @@ object names or domain names, making log analysis more straightforward."""
                 return False
 
             self.set_info_status("INFO", "green", "arrow")
-            self.set_info_message(f"Input file is valid. {self.IPTranslator.all_inputs_no} IP addresses found.",
+            self.set_info_message(f"Input is valid. {self.IPTranslator.all_inputs_no} address(es) found.",
                                   "green", "arrow")
-            self.log.set(f"INFO - Input file is valid. {self.IPTranslator.all_inputs_no} IP addresses found.")
+            self.log.set(f"INFO - Input is valid. {self.IPTranslator.all_inputs_no} address(es) found.")
 
         # Check Used Methods
         self.check_methods()
 
-        if not (True in self.__methods_flags):
+        if not (True in self.methods_flags):
             self.post_start()
             self.set_info_status("ERROR", "red", "arrow")
             self.set_info_message("Please select one searching method at least", "red", "arrow")
             return False
 
-        if self.__methods_flags[0]:
+        if self.methods_flags[0]:
             # Check Reference File
             if not self.IPTranslator.refs:
                 __ref_thread = PropagatingThread(target=self.IPTranslator.check_ref_file,
                                                  daemon=True)
                 __ref_thread.start()
                 while __ref_thread.is_alive():
-                    self.__root.update()
+                    self.root.update()
                     time.sleep(0.1)
                 __ref = __ref_thread.join()
                 if not __ref:
@@ -1108,14 +1078,14 @@ object names or domain names, making log analysis more straightforward."""
                                       "green", "arrow")
                 self.log.set(f"INFO - Reference file is valid. {self.IPTranslator.ref_no} addresses found.")
 
-        if self.__methods_flags[1]:
+        if self.methods_flags[1]:
             if not self.IPTranslator.pan_addresses:
                 # Connect to Palo Alto
                 __connect_pan_thread = PropagatingThread(target=self.IPTranslator.connect_pan,
                                                          daemon=True)
                 __connect_pan_thread.start()
                 while __connect_pan_thread.is_alive():
-                    self.__root.update()
+                    self.root.update()
                     time.sleep(0.1)
                 __pan = __connect_pan_thread.join()
                 if not __pan:
@@ -1133,7 +1103,7 @@ object names or domain names, making log analysis more straightforward."""
                                                             daemon=True)
                     __import_pan_thread.start()
                     while __import_pan_thread.is_alive():
-                        self.__root.update()
+                        self.root.update()
                         time.sleep(0.1)
                     __import_pan = __import_pan_thread.join()
                     if not __import_pan:
@@ -1158,14 +1128,14 @@ object names or domain names, making log analysis more straightforward."""
                                       "green", "arrow")
                 self.log.set(f"INFO - {pan_no} addresses found in PAN.")
 
-        if self.__methods_flags[2]:
+        if self.methods_flags[2]:
             if not self.IPTranslator.forti_addresses:
                 # Connect to Fortinet
                 __connect_forti_thread = PropagatingThread(target=self.IPTranslator.connect_forti,
                                                            daemon=True)
                 __connect_forti_thread.start()
                 while __connect_forti_thread.is_alive():
-                    self.__root.update()
+                    self.root.update()
                     time.sleep(0.1)
                 __forti = __connect_forti_thread.join()
                 if not __forti:
@@ -1183,7 +1153,7 @@ object names or domain names, making log analysis more straightforward."""
                                                               daemon=True)
                     __import_forti_thread.start()
                     while __import_forti_thread.is_alive():
-                        self.__root.update()
+                        self.root.update()
                         time.sleep(0.1)
                     __import_forti = __import_forti_thread.join()
                     if not __import_forti:
@@ -1208,14 +1178,14 @@ object names or domain names, making log analysis more straightforward."""
                                       "green", "arrow")
                 self.log.set(f"INFO - {forti_no} addresses found in FortiGate.")
 
-        if self.__methods_flags[3]:
+        if self.methods_flags[3]:
             if not self.IPTranslator.apic_addresses:
                 # Connect to Cisco ACI
                 __connect_apic_thread = PropagatingThread(target=self.IPTranslator.connect_apic,
                                                           daemon=True)
                 __connect_apic_thread.start()
                 while __connect_apic_thread.is_alive():
-                    self.__root.update()
+                    self.root.update()
                     time.sleep(0.1)
                 __apic = __connect_apic_thread.join()
                 if not __apic:
@@ -1233,7 +1203,7 @@ object names or domain names, making log analysis more straightforward."""
                                                              daemon=True)
                     __import_apic_thread.start()
                     while __import_apic_thread.is_alive():
-                        self.__root.update()
+                        self.root.update()
                         time.sleep(0.1)
                     __import_apic = __import_apic_thread.join()
                     if not __import_apic:
@@ -1258,14 +1228,14 @@ object names or domain names, making log analysis more straightforward."""
                                       "green", "arrow")
                 self.log.set(f"INFO - {apic_no} addresses found in APIC.")
 
-        if self.__methods_flags[4]:
+        if self.methods_flags[4]:
             if not self.IPTranslator.resolvers:
                 # Get DNS Servers
                 __dns_thread = PropagatingThread(target=self.IPTranslator.check_dns_servers,
                                                  daemon=True)
                 __dns_thread.start()
                 while __dns_thread.is_alive():
-                    self.__root.update()
+                    self.root.update()
                     time.sleep(0.1)
                 __resolvers = __dns_thread.join()
                 if not __resolvers:
@@ -1332,7 +1302,7 @@ object names or domain names, making log analysis more straightforward."""
         else:
             __content_str += "\n\n"
 
-        if self.__methods_flags[0]:
+        if self.methods_flags[0]:
             if len(self.IPTranslator.refs.keys()) == 1:
                 __sheet_str = "1 Sheet"
             else:
@@ -1344,21 +1314,21 @@ object names or domain names, making log analysis more straightforward."""
             else:
                 __content_str += "\n\n"
 
-        if self.__methods_flags[1]:
+        if self.methods_flags[1]:
             __content_str += f"Palo Alto: {len(self.IPTranslator.pan_addresses)} Address Objects.\n\n"
 
-        if self.__methods_flags[2]:
+        if self.methods_flags[2]:
             __content_str += f"FortiGate: {len(self.IPTranslator.forti_addresses)} Address Objects.\n\n"
 
-        if self.__methods_flags[3]:
+        if self.methods_flags[3]:
             __content_str += f"Cisco ACI: {len(self.IPTranslator.apic_addresses)} Address Objects.\n\n"
 
-        if self.__methods_flags[4]:
+        if self.methods_flags[4]:
             __content_str += f"DNS Servers: {len(self.IPTranslator.resolvers)} Servers.\n\n"
 
         ans = messagebox.askquestion("Info",
                                      f"{__content_str}\nClick 'Yes' to start the translation process.",
-                                     parent=self.__root)
+                                     parent=self.root)
 
         if ans != "yes":
             self.set_info_status("INFO", "green", "arrow")
@@ -1368,17 +1338,17 @@ object names or domain names, making log analysis more straightforward."""
             self.post_start()
             return False
 
-        self.__start_thread = PropagatingThread(target=self.IPTranslator.Translate)
-        self.__start_thread.start()
+        self.start_thread = PropagatingThread(target=self.IPTranslator.Translate)
+        self.start_thread.start()
 
     def post_start(self) -> None:
-        self.__start_flag = False
-        self.__stop_flag = False
-        self.IPTranslator.__stop = False
+        self.start_flag = False
+        self.pause_flag = False
+        self.stop_flag = False
 
         try:
-            if self.__start_thread.is_alive():
-                self.__start_thread.stop()
+            if self.start_thread.is_alive():
+                self.start_thread.stop()
         except:
             pass
 
@@ -1387,25 +1357,25 @@ object names or domain names, making log analysis more straightforward."""
 
         self.start_button.config(text="Start", state="normal", style="start.TButton", command=self.start,
                                  cursor="hand2")
-        self.__root.bind("<Return>", self.start)
+        self.root.bind("<Return>", self.start)
 
-        self.enable_all_buttons()
+        self.enable_buttons("all")
 
     def stop(self, event=None) -> None:
-        self.__stop_flag = True
+        self.pause_flag = True
 
         ans = messagebox.askyesnocancel("Warning",
                                         "Do you want to save the results before stopping the process?",
                                         icon="warning",
                                         default="yes",
-                                        parent=self.__root)
+                                        parent=self.root)
 
         if ans is True:
             self.log.set("INFO - User chose to stop the process and save the results.")
-            self.__start_flag = False
+            self.start_flag = False
 
         elif ans is False:
-            self.IPTranslator.__stop = True
+            self.stop_flag = True
             self.log.set("INFO - User chose to stop the process without saving the results.")
 
             if self.progress_bar['value'] >= self.progress_bar['maximum']:
@@ -1415,41 +1385,41 @@ object names or domain names, making log analysis more straightforward."""
 
             self.post_start()
             self.IPTranslator.clear_var()
-            self.__root.update()
+            self.root.update()
 
             self.set_info_status("INFO", "green", "arrow")
             self.set_info_message("The process has been stopped successfully.", "red", "arrow")
 
-        self.__stop_flag = False
+        self.pause_flag = False
 
     #######################################################
 
     def init_root_header(self) -> None:
         """Initialize the header of the application."""
 
-        header = ttk.Label(self.__root, text=self.__name, font=("Arial", 20, "bold"))
+        header = ttk.Label(self.root, text=self.name, font=("Arial", 20, "bold"))
         header.pack(pady=(15, 0), anchor="center")
 
-        head_btn_frame = ttk.Frame(self.__root)
+        head_btn_frame = ttk.Frame(self.root)
         head_btn_frame.pack(pady=(0, 10), padx=20, anchor="center")
 
-        github_button = tk.Button(head_btn_frame, text=f" {self.__author}", font=("Arial bold", 12),
-                                  image=self.__github_icon, borderwidth=0, relief="sunken", compound="left",
-                                  cursor="hand2", command=lambda: webbrowser.open_new(self.__github_link),
+        github_button = tk.Button(head_btn_frame, text=f" {self.author}", font=("Arial bold", 12),
+                                  image=self.github_icon, borderwidth=0, relief="sunken", compound="left",
+                                  cursor="hand2", command=lambda: webbrowser.open_new(self.github_link),
                                   anchor="center")
         github_button.grid(row=0, column=0, padx=(5, 300), pady=(3, 5), sticky="w")
 
         info_button = tk.Button(head_btn_frame, text="Help ", font=("Arial bold", 12),
-                                image=self.__info_icon, borderwidth=0, relief="sunken", compound="right",
+                                image=self.info_icon, borderwidth=0, relief="sunken", compound="right",
                                 cursor="hand2", command=lambda: self.info_window(), anchor="center")
         info_button.grid(row=0, column=1, padx=(0, 5), pady=(3, 5), sticky="e")
 
-        separator(self.__root, orient="horizontal", fill="x", y_offset=(0, 10), x_offset=20)
+        separator(self.root, orient="horizontal", fill="x", y_offset=(0, 10), x_offset=20)
 
     def init_root_info(self) -> None:
         """Initialize the info frame of the application."""
 
-        info_frame = ttk.Frame(self.__root)
+        info_frame = ttk.Frame(self.root)
         info_frame.pack(pady=(0, 10), padx=20, anchor="center")
 
         self.info_type_label = ttk.Label(info_frame,
@@ -1471,12 +1441,12 @@ object names or domain names, making log analysis more straightforward."""
         self.msg_text.trace_add("write", unbind_msg)
         self.info_msg_label.pack()
 
-        separator(self.__root, orient="horizontal", fill="x", y_offset=(0, 10), x_offset=20)
+        separator(self.root, orient="horizontal", fill="x", y_offset=(0, 10), x_offset=20)
 
     def init_root_rows(self) -> None:
         """Initialize the rows of the application."""
 
-        methods_frame = ttk.Frame(self.__root)
+        methods_frame = ttk.Frame(self.root)
         methods_frame.pack(pady=(0, 10), padx=20, anchor="center")
 
         input_row_contents = {
@@ -1583,12 +1553,12 @@ object names or domain names, making log analysis more straightforward."""
         }
         self.dns_row = StatusRow(methods_frame, 5, **dns_row_contents)
 
-        separator(self.__root, orient="horizontal", fill="x", y_offset=(0, 10), x_offset=20)
+        separator(self.root, orient="horizontal", fill="x", y_offset=(0, 10), x_offset=20)
 
     def init_root_progressbar(self) -> None:
         """Initialize the progress bar of the application."""
 
-        progress_frame = ttk.Frame(self.__root)
+        progress_frame = ttk.Frame(self.root)
         progress_frame.pack(pady=(0, 10), padx=20, anchor="center")
 
         self.progress_bar = ttk.Progressbar(progress_frame, orient="horizontal", length=450, mode="determinate")
@@ -1597,7 +1567,7 @@ object names or domain names, making log analysis more straightforward."""
         self.progress_percentage = ttk.Label(progress_frame, text="%0", font=("Arial", 10, "bold"))
         self.progress_percentage.grid(row=0, column=1, padx=(10, 0), sticky="w")
 
-        separator(self.__root, orient="horizontal", fill="x", y_offset=(0, 10), x_offset=20)
+        separator(self.root, orient="horizontal", fill="x", y_offset=(0, 10), x_offset=20)
 
     def init_root_buttons(self) -> None:
         """Initialize the buttons of the application."""
@@ -1605,7 +1575,7 @@ object names or domain names, making log analysis more straightforward."""
         s = ttk.Style()
         s.configure("start.TButton", font=("Arial", 15, "bold"), foreground="green")
 
-        self.start_button = ttk.Button(self.__root, text="Start", command=self.start,
+        self.start_button = ttk.Button(self.root, text="Start", command=self.start,
                                        style="start.TButton",
                                        cursor="hand2")
         self.start_button.pack(pady=(0, 10), anchor="center", ipady=10, ipadx=75)
@@ -1627,7 +1597,7 @@ object names or domain names, making log analysis more straightforward."""
         self.IPTranslator.disconnect_pan(False)
         self.IPTranslator.disconnect_forti(False)
         self.IPTranslator.disconnect_apic(False)
-        self.__root.destroy()
+        self.root.destroy()
 
     def mainloop(self) -> None:
         """Run the main loop of the application."""
@@ -1635,17 +1605,17 @@ object names or domain names, making log analysis more straightforward."""
         x: int = (self.__SCREEN_WIDTH - self.__width) // 2 - self.__kwargs.get("x_offset", 0)
         y: int = (self.__SCREEN_HEIGHT - self.__height) // 2 - self.__kwargs.get("y_offset", self.__height // 3)
 
-        self.__root.geometry(f"{self.__width}x{self.__height}+{x}+{y}")
-        self.__root.resizable(*self.__resizable)
+        self.root.geometry(f"{self.__width}x{self.__height}+{x}+{y}")
+        self.root.resizable(*self.__resizable)
 
-        if self.__icon:
-            self.__root.iconphoto(False, self.__icon)
+        if self.icon:
+            self.root.iconphoto(False, self.icon)
 
-        self.__root.focus_force()
-        self.__root.grab_set()
+        self.root.focus_force()
+        self.root.grab_set()
 
-        self.__root.bind('<Escape>', self.destroy)
-        self.__root.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.root.bind('<Escape>', self.destroy)
+        self.root.protocol("WM_DELETE_WINDOW", self.destroy)
 
         __imported = self.IPTranslator.import_credentials()
         if __imported[0]:
@@ -1664,12 +1634,15 @@ object names or domain names, making log analysis more straightforward."""
         def OnFocusIn(event):
             if type(event.widget).__name__ == 'Tk':
                 event.widget.attributes('-topmost', False)
-            self.__root.unbind('<FocusIn>', focus_in)
+            self.root.unbind('<FocusIn>', focus_in)
 
-        self.__root.attributes('-topmost', True)
-        self.__root.focus_force()
-        focus_in = self.__root.bind('<FocusIn>', OnFocusIn)
+        self.root.attributes('-topmost', True)
+        self.root.focus_force()
+        focus_in = self.root.bind('<FocusIn>', OnFocusIn)
 
-        self.__root.mainloop()
-        self.log.set("INFO - Application closed.")
+        try:
+            self.root.mainloop()
+            self.log.set("INFO - Application closed successfully.")
+        except:
+            self.log.set("INFO - Application did not close properly.")
         self.log.set("")

@@ -7,7 +7,6 @@ def main():
     try:
         if getattr(sys, 'frozen', False):
             import pyi_splash  # type: ignore
-            pyi_splash.update_text('UI Loaded ...')
     finally:
         pass
 

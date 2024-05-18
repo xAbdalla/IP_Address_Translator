@@ -18,6 +18,10 @@ from dns.nameserver import Nameserver
 from fortigate_api import FortiGateAPI
 from typing_extensions import Sequence
 
+from panos.device import Vsys
+from panos.base import PanDevice
+from panos.objects import AddressObject
+
 import tkinter as tk
 from tkinter import ttk
 from tkinter import Canvas
@@ -28,7 +32,6 @@ from tkinter import messagebox
 from Crypto import Random
 from Crypto.Cipher import AES
 from Crypto.Hash import SHA256
-
 
 # Icons Data
 ICON_DATA = (
@@ -702,9 +705,9 @@ class VerticalScrolledFrame(ttk.Frame):
 
 
 class IPTranslator:
-    def __init__(self, **kwargs):
-        self.__DEBUG = True
-        self.parent = None
+    def __init__(self, parent, **kwargs):
+        self.parent = parent
+        self.DEBUG = kwargs.get("debug", False)
 
         self.__uuid: str | bytes | list = [guid(), os.getlogin()]  # Unique ID for encryption
         self.__enc_layers: int = 10  # Number of nested encryption layers (Recommended Maximum: 10)
@@ -722,7 +725,7 @@ class IPTranslator:
 
         self.settings_file: str = kwargs.get("settings_file", 'settings.cfg')
 
-        self.ssh_pan: SSHClient | None = kwargs.get("ssh_pan", None)
+        self.pan_api: PanDevice | None = kwargs.get("pan_api", None)
         self.pan_ip: str = kwargs.get("pan_ip", "")
         self.pan_username: str = kwargs.get("pan_username", "")
         self.pan_password: str = kwargs.get("pan_password", "")
@@ -755,8 +758,6 @@ class IPTranslator:
         self.outputs: dict = {}
 
         self.separators: list = kwargs.get("separators", [",", ";", "\r\n", "\n\r", "\n", "\r"])
-
-        self.__stop = False
 
     #######################################################
     def clear_var(self) -> None:
@@ -791,14 +792,13 @@ class IPTranslator:
         __apic_password = self.apic_password if self.apic_password else "PLACEHOLDER"
         __apic_class = self.apic_class if self.apic_class else "PLACEHOLDER"
 
-        __dns_servers = self.dns_servers if self.dns_servers else ["PLACEHOLDER", "PLACEHOLDER",
-                                                                   "PLACEHOLDER", "PLACEHOLDER"]
+        __dns_servers = self.dns_servers if self.dns_servers else ["PLACEHOLDER" for _ in range(4)]
 
-        pan_text = f"pan\n{"\n".join([__pan_ip, __pan_username, __pan_password, __pan_vsys])}"
-        forti_text = f"forti\n{"\n".join([__forti_ip, str(__forti_port),
-                                          __forti_username, __forti_password, __forti_vdom])}"
-        apic_text = f"apic\n{"\n".join([__apic_ip, __apic_username, __apic_password, __apic_class])}"
-        dns_text = f"dns\n{"\n".join(__dns_servers)}"
+        pan_text = "\n".join(["pan", __pan_ip, __pan_username, __pan_password, __pan_vsys])
+        forti_text = "\n".join(["forti", __forti_ip, str(__forti_port),
+                                __forti_username, __forti_password, __forti_vdom])
+        apic_text = "\n".join(["apic", __apic_ip, __apic_username, __apic_password, __apic_class])
+        dns_text = "\n".join(["dns"] + __dns_servers)
 
         enc_pan = encrypt(self.__uuid, pan_text, encode=True, layers=self.__enc_layers)
         enc_forti = encrypt(self.__uuid, forti_text, encode=True, layers=self.__enc_layers)
@@ -855,7 +855,6 @@ class IPTranslator:
 
     def import_credentials(self, app: str = '') -> list[bool]:
         __imported = [False for _ in range(4)]
-        filename = 'settings.cfg'
 
         if os.path.isfile(self.settings_file) and os.path.getsize(self.settings_file) > 0:
             with open(self.settings_file, 'r') as f:
@@ -926,9 +925,12 @@ class IPTranslator:
     #######################################################
 
     def check_input_file(self, widget="") -> bool:
-        start_flag = self.parent.start_status()
+        self.parent.disable_buttons("input")
+
+        start_flag = self.parent.start_flag
 
         if "input_entry" in widget:
+            self.parent.enable_buttons("input")
             return False
 
         if (self.input_file == self.parent.input_row.entry.get().strip()
@@ -936,6 +938,7 @@ class IPTranslator:
                 and self.inputs_no):
             self.parent.set_info_status("INFO", "green", "arrow")
             self.parent.set_info_message(f"The input is valid.", "green", "arrow")
+            self.parent.enable_buttons("input")
             return True
 
         self.input_file = self.parent.input_row.entry.get().strip()
@@ -952,6 +955,7 @@ class IPTranslator:
             self.parent.set_info_message(f"Please enter the input file.", "red", "arrow")
             if start_flag:
                 self.parent.log.set("ERROR - Input file is not selected.")
+            self.parent.enable_buttons("input")
             return False
 
         elif input_type != "Invalid":
@@ -986,6 +990,7 @@ class IPTranslator:
             self.parent.set_info_message(f"The input is valid.", "green", "arrow")
             if start_flag:
                 self.parent.log.set(f"INFO - Input file is valid ({self.input_file}).")
+            self.parent.enable_buttons("input")
             return True
 
         if not isinstance(self.input_file, str):
@@ -993,6 +998,7 @@ class IPTranslator:
             self.parent.set_info_message("Invalid input file.", "red", "arrow")
             if start_flag:
                 self.parent.log.set(f"ERROR - Invalid input file {self.input_file}.")
+            self.parent.enable_buttons("input")
             return False
 
         excel_ext = (".xls", ".xlsx", ".xlsm", ".xlsb", ".odf", ".ods", ".odt")
@@ -1011,6 +1017,7 @@ class IPTranslator:
             self.parent.set_info_message("Invalid input file extension.", "red", "arrow")
             if start_flag:
                 self.parent.log.set(f"ERROR - Invalid input file extension {self.input_file}.")
+            self.parent.enable_buttons("input")
             return False
 
         elif not os.path.isfile(self.input_file):
@@ -1018,6 +1025,7 @@ class IPTranslator:
             self.parent.set_info_message("Input file not found.", "red", "arrow")
             if start_flag:
                 self.parent.log.set(f"ERROR - Input file not found {self.input_file}.")
+            self.parent.enable_buttons("input")
             return False
 
         elif os.stat(self.input_file).st_size == 0:
@@ -1025,6 +1033,7 @@ class IPTranslator:
             self.parent.set_info_message("Empty input file.", "red", "arrow")
             if start_flag:
                 self.parent.log.set(f"ERROR - Empty input file {self.input_file}.")
+            self.parent.enable_buttons("input")
             return False
 
         elif self.input_file.lower().endswith(excel_ext):
@@ -1041,6 +1050,7 @@ class IPTranslator:
                 self.parent.set_info_message("No sheets in input file workbook.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No sheets in input file workbook {self.input_file}.")
+                self.parent.enable_buttons("input")
                 return False
 
             for sheet in sheet_names:
@@ -1056,6 +1066,7 @@ class IPTranslator:
                 self.parent.set_info_message("No subnets in the input file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No subnets in the input file {self.input_file}.")
+                self.parent.enable_buttons("input")
                 return False
 
             for sheet in data.keys():
@@ -1086,12 +1097,14 @@ class IPTranslator:
                 self.parent.set_info_message("No valid subnets in the input file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No valid subnets in the input file {self.input_file}.")
+                self.parent.enable_buttons("input")
                 return False
 
             self.all_inputs_no = self.inputs_no + len(self.input_invalids)
             self.parent.set_info_status("INFO", "green", "arrow")
             self.parent.set_info_message(f"The input is valid ({self.inputs_no} Subnets).", "green", "arrow")
             self.parent.log.set(f"INFO - Input file is valid ({self.input_file}).")
+            self.parent.enable_buttons("input")
             return True
 
         elif self.input_file.lower().endswith(csv_ext):
@@ -1102,6 +1115,7 @@ class IPTranslator:
                 self.parent.set_info_message("Invalid CSV file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - Invalid CSV file {self.input_file}.")
+                self.parent.enable_buttons("input")
                 return False
 
             if "Subnet" in df.columns:
@@ -1113,6 +1127,7 @@ class IPTranslator:
                 self.parent.set_info_message("No subnets in the input file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No subnets in the input file {self.input_file}.")
+                self.parent.enable_buttons("input")
                 return False
 
             for i, subnet in enumerate(subnets):
@@ -1140,12 +1155,14 @@ class IPTranslator:
                 self.parent.set_info_message("No valid subnets in the input file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No valid subnets in the input file {self.input_file}.")
+                self.parent.enable_buttons("input")
                 return False
 
             self.all_inputs_no = self.inputs_no + len(self.input_invalids)
             self.parent.set_info_status("INFO", "green", "arrow")
             self.parent.set_info_message(f"The input is valid ({self.inputs_no} Subnets).", "green", "arrow")
             self.parent.log.set(f"INFO - Input file is valid ({self.input_file}).")
+            self.parent.enable_buttons("input")
             return True
 
         elif self.input_file.lower().endswith(text_ext):
@@ -1157,6 +1174,7 @@ class IPTranslator:
                 self.parent.set_info_message("Invalid text file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - Invalid text file {self.input_file}.")
+                self.parent.enable_buttons("input")
                 return False
 
             if not data:
@@ -1164,6 +1182,7 @@ class IPTranslator:
                 self.parent.set_info_message("No subnets in the input file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No subnets in the input file {self.input_file}.")
+                self.parent.enable_buttons("input")
                 return False
 
             for i, subnet in enumerate(data):
@@ -1191,21 +1210,26 @@ class IPTranslator:
                 self.parent.set_info_message("No valid subnets in the input file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No valid subnets in the input file {self.input_file}.")
+                self.parent.enable_buttons("input")
                 return False
 
             self.all_inputs_no = self.inputs_no + len(self.input_invalids)
             self.parent.set_info_status("INFO", "green", "arrow")
             self.parent.set_info_message(f"The input is valid ({self.inputs_no} Subnets).", "green", "arrow")
             self.parent.log.set(f"INFO - Input file is valid ({self.input_file}).")
+            self.parent.enable_buttons("input")
             return True
 
     #######################################################
 
     def check_ref_file(self, widget="") -> bool:
-        start_flag = self.parent.start_status()
+        self.parent.disable_buttons("ref")
+
+        start_flag = self.parent.start_flag
         ref_checkbox = self.parent.ref_row.checkbox_var.get()
 
         if "ref_entry" in widget:
+            self.parent.enable_buttons("ref")
             return False
 
         if (self.ref_file == self.parent.ref_row.entry.get().strip()
@@ -1213,6 +1237,7 @@ class IPTranslator:
                 and self.ref_no):
             self.parent.set_info_status("INFO", "green", "arrow")
             self.parent.set_info_message(f"The reference is valid.", "green", "arrow")
+            self.parent.enable_buttons("ref")
             return True
 
         self.ref_file = self.parent.ref_row.entry.get().strip()
@@ -1229,6 +1254,7 @@ class IPTranslator:
                 self.parent.set_info_message("Please enter the reference file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set("ERROR - Reference file is not selected.")
+            self.parent.enable_buttons("ref")
             return False
 
         if not isinstance(self.ref_file, str):
@@ -1237,6 +1263,7 @@ class IPTranslator:
                 self.parent.set_info_message("Invalid reference file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - Invalid reference file {self.ref_file}.")
+            self.parent.enable_buttons("ref")
             return False
 
         excel_ext = (".xls", ".xlsx", ".xlsm", ".xlsb", ".odf", ".ods", ".odt")
@@ -1259,6 +1286,7 @@ class IPTranslator:
             self.parent.set_info_message("Invalid reference file extension.", "red", "arrow")
             if start_flag:
                 self.parent.log.set(f"ERROR - Invalid reference file extension {self.ref_file}.")
+            self.parent.enable_buttons("ref")
             return False
 
         elif not os.path.isfile(self.ref_file):
@@ -1266,6 +1294,7 @@ class IPTranslator:
             self.parent.set_info_message("Reference file not found.", "red", "arrow")
             if start_flag:
                 self.parent.log.set(f"ERROR - Reference file not found {self.ref_file}.")
+            self.parent.enable_buttons("ref")
             return False
 
         elif os.stat(self.ref_file).st_size == 0:
@@ -1273,6 +1302,7 @@ class IPTranslator:
             self.parent.set_info_message("Empty reference file.", "red", "arrow")
             if start_flag:
                 self.parent.log.set(f"ERROR - Empty reference file {self.ref_file}.")
+            self.parent.enable_buttons("ref")
             return False
 
         elif self.ref_file.lower().endswith(excel_ext):
@@ -1289,6 +1319,7 @@ class IPTranslator:
                 self.parent.set_info_message("No sheets in reference file workbook.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No sheets in reference file workbook {self.ref_file}.")
+                self.parent.enable_buttons("ref")
                 return False
 
             for sheet in sheet_names:
@@ -1308,6 +1339,7 @@ class IPTranslator:
                 self.parent.set_info_message("No subnets in the reference file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No subnets in the reference file {self.ref_file}.")
+                self.parent.enable_buttons("ref")
                 return False
 
             for sheet in data.keys():
@@ -1344,12 +1376,14 @@ class IPTranslator:
                 self.parent.set_info_message("No valid subnets in the reference file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No valid subnets in the reference file {self.ref_file}.")
+                self.parent.enable_buttons("ref")
                 return False
 
             self.parent.ref_row.checkbox_var.set(1)
             self.parent.set_info_status("INFO", "green", "arrow")
             self.parent.set_info_message(f"The reference is valid ({self.ref_no} Subnets).", "green", "arrow")
             self.parent.log.set(f"INFO - Reference file is valid ({self.ref_file}).")
+            self.parent.enable_buttons("ref")
             return True
 
         elif self.ref_file.lower().endswith(csv_ext):
@@ -1360,6 +1394,7 @@ class IPTranslator:
                 self.parent.set_info_message("Invalid CSV file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - Invalid CSV file {self.ref_file}.")
+                self.parent.enable_buttons("ref")
                 return False
 
             if (any(col in df.columns for col in tenant_col)
@@ -1376,6 +1411,7 @@ class IPTranslator:
                 self.parent.set_info_message("No subnets in the reference file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No subnets in the reference file {self.ref_file}.")
+                self.parent.enable_buttons("ref")
                 return False
 
             for i, row in enumerate(data):
@@ -1411,151 +1447,131 @@ class IPTranslator:
                 self.parent.set_info_message("No valid subnets in the reference file.", "red", "arrow")
                 if start_flag:
                     self.parent.log.set(f"ERROR - No valid subnets in the reference file {self.ref_file}.")
+                self.parent.enable_buttons("ref")
                 return False
 
             self.parent.ref_row.checkbox_var.set(1)
             self.parent.set_info_status("INFO", "green", "arrow")
             self.parent.set_info_message(f"The reference is valid ({self.ref_no} Subnets).", "green", "arrow")
             self.parent.log.set(f"INFO - Reference file is valid ({self.ref_file}).")
+            self.parent.enable_buttons("ref")
             return True
 
     #######################################################
 
     def connect_pan(self,
-                    ip: str = "",
-                    username: str = "",
-                    password: str = "",
-                    vsys: str = "",
+                    ip: str = "self",
+                    username: str = "self",
+                    password: str = "self",
+                    vsys: str = "self",
                     window: tk.Toplevel | None = None,
                     ) -> bool:
 
         def failed(error: str = ""):
-            if error:
-                self.parent.log.set(f"ERROR - Failed to connect to Palo Alto{f": {error}" if self.__DEBUG else ""}.")
-            else:
-                self.parent.log.set(f"ERROR - Failed to connect to Palo Alto.")
+            self.parent.log.set(
+                f"ERROR - Failed to connect to Palo Alto{f": {error}" if (self.DEBUG and error) else ""}.")
             self.parent.pan_row.button.config(state="Connect", cursor="arrow")
-            self.parent.enable_connect_buttons()
+            self.parent.enable_buttons("pan")
             self.disconnect_pan(False)
 
-        if not ip.strip():
+        if ip.strip() == "self":
             ip = self.pan_ip
-        if not username.strip():
+        if username.strip() == "self":
             username = self.pan_username
-        if not password:
+        if password == "self":
             password = self.pan_password
-        if not vsys.strip():
+        if vsys.strip() == "self":
             vsys = self.pan_vsys
 
         ip = ip.strip()
         username = username.strip()
         vsys = vsys.strip()
 
-        if self.ssh_pan:
+        if self.pan_api:
             self.disconnect_pan(False)
 
-        self.parent.disable_connect_buttons()
+        self.parent.disable_buttons("pan")
         self.parent.log.set("INFO - Connecting to Palo Alto...")
 
         # Check the credentials are not empty
         if any([ip == "", username == "", password == ""]):
             self.parent.pan_row.button.config(state="Connect", cursor="arrow")
-            self.parent.enable_connect_buttons()
+            self.parent.enable_buttons("pan")
             self.disconnect_pan(False)
             self.parent.log.set("ERROR - Palo Alto credentials are not set.")
             return False
 
-        self.ssh_pan = SSHClient()
-        self.ssh_pan.set_missing_host_key_policy(AutoAddPolicy())
         self.parent.pan_row.button.config(cursor="wait", text="Connecting")
 
         try:
             # Connect to Palo Alto
-            __ssh_pan_thread = PropagatingThread(target=self.ssh_pan.connect,
-                                                 kwargs={
-                                                     "hostname": ip,
-                                                     "username": username,
-                                                     "password": password,
-                                                     "timeout": 10
-                                                 },
-                                                 daemon=True,
-                                                 name="ssh_pan_thread")
-            __ssh_pan_thread.start()
-
-            while __ssh_pan_thread.is_alive():
-                self.parent.get_root().update()
-                if isinstance(window, tk.Toplevel) and window.winfo_exists():
-                    window.update()
-                time.sleep(0.1)
-
-            __ssh_pan_thread.join()
-
-            # Check if the connection is successful
-            if self.ssh_pan.get_transport().is_active():
-                try:
-                    transport = self.ssh_pan.get_transport()
-                    transport.set_keepalive(30)
-                    transport.send_ignore()
-                except Exception as e:
-                    failed(str(e))
-                    return False
-            else:
-                failed()
-                return False
-
-            self.parent.pan_row.status.config(text="Connected", foreground="green")
-            self.parent.log.set(f"INFO - Connected to Palo Alto Device {ip}.")
-
             try:
-                self.pan_addresses = []
-                if isinstance(self.ssh_pan, SSHClient) and self.ssh_pan.get_transport().is_active():
-                    __import_pan_thread = PropagatingThread(target=self.import_pan,
-                                                            kwargs={
-                                                                "ip": ip,
-                                                                "vsys": vsys,
-                                                            },
-                                                            daemon=True,
-                                                            name="import_pan_thread")
+                if ipaddress.ip_address(ip).version == 4:
+                    __socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    __socket.settimeout(10)
+                    result = __socket.connect_ex((ip, 443))
+                    __socket.close()
 
-                    __import_pan_thread.start()
-
-                    while __import_pan_thread.is_alive():
-                        self.parent.get_root().update()
-                        if isinstance(window, tk.Toplevel) and window.winfo_exists():
-                            window.update()
-                        time.sleep(0.1)
-
-                    __import_pan_thread.join()
-
-            except Exception as e:
-                self.parent.log.set(
-                    f"ERROR - Failed to import Palo Alto addresses{f": {str(e)}" if self.__DEBUG else ""}.")
-
-            self.parent.pan_row.button.config(text="Connect", cursor="arrow")
-            self.parent.enable_connect_buttons()
-            return True
+                    if result == 0:
+                        self.pan_api = PanDevice.create_from_device(ip, username, password)
+                    else:
+                        failed("Timeout")
+                        return False
+                else:
+                    raise
+            except:
+                self.pan_api = PanDevice.create_from_device(ip, username, password)
 
         except Exception as e:
             failed(str(e))
             return False
 
-    def disconnect_pan(self, logging=True) -> None:
+        self.parent.pan_row.status.config(text="Connected", foreground="green")
+        self.parent.log.set(f"INFO - Connected to Palo Alto Device {ip}.")
+
         try:
-            if isinstance(self.ssh_pan, SSHClient):
-                self.ssh_pan.close()
-        finally:
-            self.ssh_pan = None
+            self.pan_addresses = []
+            __import_pan_thread = PropagatingThread(target=self.import_pan,
+                                                    kwargs={
+                                                        "ip": ip,
+                                                        "vsys": vsys,
+                                                    },
+                                                    daemon=True,
+                                                    name="import_pan_thread")
 
-            self.parent.pan_row.button.config(text="Connect", cursor="arrow")
-            self.parent.pan_row.status.config(text="Not Connected", foreground="red")
-            if logging:
-                self.parent.log.set("INFO - Disconnected from Palo Alto Device.")
-            self.parent.enable_connect_buttons()
+            __import_pan_thread.start()
 
-    def import_pan(self, ip: str = "", vsys: str = "") -> bool:
-        if not ip.strip():
+            while __import_pan_thread.is_alive():
+                self.parent.root.update()
+                if isinstance(window, tk.Toplevel) and window.winfo_exists():
+                    window.update()
+                time.sleep(0.1)
+
+            __import_pan_thread.join()
+
+            if not self.pan_addresses:
+                self.parent.set_info_message("No addresses imported from Palo Alto.", "red", "arrow")
+
+        except Exception as e:
+            self.parent.log.set(f"ERROR - Failed to import Palo Alto addresses{f": {str(e)}" if self.DEBUG else ""}.")
+
+        self.parent.pan_row.button.config(text="Connect", cursor="arrow")
+        self.parent.enable_buttons("pan")
+        return True
+
+    def disconnect_pan(self, logging=True) -> None:
+        self.pan_api = None
+
+        self.parent.pan_row.button.config(text="Connect", cursor="arrow")
+        self.parent.pan_row.status.config(text="Not Connected", foreground="red")
+        if logging:
+            self.parent.log.set("INFO - Disconnected from Palo Alto Device.")
+        self.parent.enable_buttons("pan")
+
+    def import_pan(self, ip: str = "self", vsys: str = "self") -> bool:
+        if ip.strip() == "self":
             ip = self.pan_ip
-        if not vsys.strip():
+        if vsys.strip() == "self":
             vsys = self.pan_vsys
 
         ip = ip.strip()
@@ -1563,115 +1579,65 @@ class IPTranslator:
         if any(sep in vsys for sep in self.separators):
             sep = [sep for sep in self.separators if sep in vsys][0]
             vsys = re.sub(f"{sep}+", sep, vsys.strip())
-            vsys = re.sub(sep, r"\|", vsys.strip())
+            vsys = vsys[1:] if vsys[0] == sep else vsys
+            vsys = [x.strip() for x in vsys.split(sep) if x.strip()]
+        else:
+            vsys = [vsys]
 
-        __ssh_pan_shell = None
         self.pan_addresses = []
 
-        if not isinstance(self.ssh_pan, SSHClient) or not self.ssh_pan.get_transport().is_active():
+        if not self.pan_api:
             return False
 
         try:
-            # Invoke Shell
             try:
-                # transport = self.ssh_pan.get_transport()
-                # transport.default_window_size = 4 * 2**15  # Default 64 * 2**15
-                __ssh_pan_shell = self.ssh_pan.invoke_shell()
+                device_vsys = [x.name for x in Vsys.refreshall(self.pan_api)]
+                objects = AddressObject.refreshall(self.pan_api)
             except Exception as e:
                 self.parent.log.set(
-                    f"ERROR - Exception invoking shell on Palo Alto{f": {str(e)}" if self.__DEBUG else ""}.")
+                    f"ERROR - Can't import objects from Palo Alto{f": {str(e)}" if self.DEBUG else ""}.")
                 return False
 
-            commands = ["set cli config-output-format set",
-                        "set cli scripting-mode on",
-                        "set cli pager off",
-                        "configure",
-                        "\r\n"]
+            if str(vsys[0]).lower() in ["", "any", "all"]:
+                target_vsys = device_vsys.copy()
 
-            __ssh_pan_shell.sendall("\r\n".join(commands))
+                if not target_vsys:
+                    self.parent.log.set(f"ERROR - No VSYS found in Palo Alto {ip}.")
+                    return False
 
-            while True:
-                time.sleep(1)
-                if __ssh_pan_shell.recv_ready():
-                    _ = __ssh_pan_shell.recv(65535)
-                    break
-                elif __ssh_pan_shell.exit_status_ready():
-                    exit_status = __ssh_pan_shell.recv_exit_status()
-                    break
-                elif __ssh_pan_shell.closed or __ssh_pan_shell.eof_received or not __ssh_pan_shell.active:
-                    break
-
-            __ssh_pan_shell.recv(65535)  # Clear buffer
-            __ssh_pan_shell.sendall('\r\n')
-            time.sleep(0.25)
-
-            if vsys.lower() in ["", "any", "all"]:
-                __ssh_pan_shell.sendall(f'show | match ip-netmask\\|ip-range\\|ip-wildcard\r\n')
             else:
-                __ssh_pan_shell.sendall(f'show | match ip-netmask\\|ip-range\\|ip-wildcard | match "{vsys}"\r\n')
+                __tmp = []
+                for v in vsys:
+                    if v in device_vsys:
+                        __tmp.append(v)
+                    else:
+                        self.parent.log.set(f"ERROR - VSYS {v} not found in Palo Alto {ip}.")
+                target_vsys = __tmp.copy()
 
-            # __ssh_pan_shell.sendall(" \r\n" * 10)  # Not needed but to make sure that all output are displayed
+                if not target_vsys:
+                    self.parent.log.set(f"ERROR - The selected VSYS are not found in Palo Alto {ip}.")
+                    return False
 
-            count = 0
-            max_count = 60  # Minimum time in seconds/10
-            output = bytearray()
-            timeout = time.time() + 120  # 2 Minutes timeout
-            while True:
-                time.sleep(.1)
+            for obj in objects:
+                v_sys = obj.vsys
+                address_object = obj.name
+                ip_address = obj.value
 
-                if __ssh_pan_shell.recv_ready():  # Wait for the command to be ready
-                    count = 0
-                    output.extend(__ssh_pan_shell.recv(5 * 1024 * 1024))
-                elif __ssh_pan_shell.exit_status_ready():
-                    exit_status = __ssh_pan_shell.recv_exit_status()
-                    break
-                elif __ssh_pan_shell.closed or __ssh_pan_shell.eof_received or not __ssh_pan_shell.active:
-                    break
-                else:
-                    count += 1
-
-                # Break the loop if no output is received for more than max_count seconds
-                if count >= max_count:
-                    break
-
-                if time.time() > timeout:
-                    break
-
-            # Clean the output
-            output = output.decode('utf-8')
-            output = re.sub(" +", " ", output)
-            output = re.sub("\x00*", "", output)
-            output = re.sub("#|>", "\n", output)
-            output = re.sub("[\n\r]+", "\n", output)
-            output = [x.strip().split(" ") for x in output.split('\n') if "set " in x and ("address" in x
-                                                                                           or "device-group" in x
-                                                                                           or "shared" in x)]
-
-            for line in output:
-                v_sys, address_object, ip_address, ip_type = "", "", "", ""
-                line = [x.strip() for x in line if x.strip()]
-
-                if len(line) <= 3 or line[0] != "set":
-                    continue
-
-                if line[1] in ["address", "shared"]:
-                    v_sys = "shared"
-                    address_object = line[2] if line[1] == "address" else line[3]
-                    ip_address = line[-1]
-
-                elif line[1] == "device-group":
-                    v_sys = line[2]
-                    address_object = line[4]
-                    ip_address = line[-1]
-
-                else:
+                if (str(vsys).lower() not in ["", "any", "all"]
+                        and target_vsys
+                        and v_sys != "shared"
+                        and v_sys not in target_vsys):
                     continue
 
                 if not all([v_sys, address_object, ip_address]):
                     continue
 
+                if ip_address in ["0.0.0.0/32", "0.0.0.0/0"]:
+                    continue
+
                 if address_object.lower().startswith("network_") and len(address_object) > 8:
-                    address_object = address_object[8:]
+                    if self.get_type(address_object[8:]) != "Invalid":
+                        continue
 
                 if self.get_type(address_object) != "Invalid":
                     continue
@@ -1688,7 +1654,7 @@ class IPTranslator:
 
             if not self.pan_addresses:
                 self.parent.set_info_status("INFO", "green", "arrow")
-                self.parent.set_info_message("No addresses found in Palo Alto, Try again.", "red", "arrow")
+                self.parent.set_info_message("No addresses found in Palo Alto.", "red", "arrow")
                 self.parent.log.set(f"INFO - No addresses found in Palo Alto ({ip}).")
                 return False
 
@@ -1702,31 +1668,31 @@ class IPTranslator:
 
         except Exception as e:
             self.parent.set_info_status("ERROR", "red", "arrow")
-            self.parent.set_info_message(f"Failed to import Palo Alto addresses{f": {str(e)}" if self.__DEBUG else ""}."
-                                         , "red", "arrow")
-            self.parent.log.set(f"ERROR - Failed to import Palo Alto addresses{f": {str(e)}" if self.__DEBUG else ""}.")
+            self.parent.set_info_message(f"Failed to import Palo Alto addresses{f": {str(e)}" if self.DEBUG else ""}.",
+                                         "red", "arrow")
+            self.parent.log.set(f"ERROR - Failed to import Palo Alto addresses{f": {str(e)}" if self.DEBUG else ""}.")
             return False
 
     #######################################################
 
     def connect_forti(self,
-                      ip: str = "",
+                      ip: str = "self",
                       port: int | str = 0,
-                      username: str = "",
-                      password: str = "",
-                      vdom: str = "",
+                      username: str = "self",
+                      password: str = "self",
+                      vdom: str = "self",
                       window: tk.Toplevel | None = None,
                       ) -> bool:
 
-        if not ip.strip():
+        if ip.strip() == "self":
             ip = self.forti_ip
         if not port:
             port = self.forti_port
-        if not username.strip():
+        if username.strip() == "self":
             username = self.forti_username
-        if not password:
+        if password == "self":
             password = self.forti_password
-        if not vdom.strip():
+        if vdom.strip() == "self":
             vdom = self.forti_vdom
 
         ip = ip.strip()
@@ -1737,7 +1703,7 @@ class IPTranslator:
             port = int(port)
         except:
             self.parent.forti_row.button.config(state="Connect", cursor="arrow")
-            self.parent.enable_connect_buttons()
+            self.parent.enable_buttons("forti")
             self.disconnect_forti(False)
             self.parent.log.set(f"ERROR - Invalid Port number {port}.")
             return False
@@ -1745,18 +1711,21 @@ class IPTranslator:
         if self.forti_api:
             self.disconnect_forti(False)
 
-        self.parent.disable_connect_buttons()
+        self.parent.disable_buttons("forti")
         self.parent.log.set("INFO - Connecting to FortiGate...")
 
         if any([ip == "", port < 1, port > 65535, username == "", password == ""]):
             self.parent.forti_row.button.config(state="Connect", cursor="arrow")
-            self.parent.enable_connect_buttons()
+            self.parent.enable_buttons("forti")
             self.disconnect_forti(False)
             self.parent.log.set("ERROR - FortiGate credentials are not set.")
             return False
 
         self.parent.forti_row.button.config(cursor="wait", text="Connecting")
         try:
+            if port == 80:
+                raise
+
             self.forti_api = FortiGateAPI(host=ip,
                                           port=port,
                                           username=username,
@@ -1767,7 +1736,7 @@ class IPTranslator:
             self.forti_api.login()
 
         except:
-            if self.parent.start_status():
+            if self.parent.start_flag and port != 80:
                 self.parent.log.set(f"ERROR - Failed to connect to FortiGate through HTTPS on port {port}.")
             try:
                 self.forti_api = FortiGateAPI(host=ip,
@@ -1780,7 +1749,7 @@ class IPTranslator:
                 self.forti_api.login()
 
             except:
-                if self.parent.start_status():
+                if self.parent.start_flag:
                     self.parent.log.set(f"ERROR - Failed to connect to FortiGate through HTTP on port {port}.")
                     self.disconnect_forti()
                 else:
@@ -1788,7 +1757,7 @@ class IPTranslator:
                     self.disconnect_forti(False)
 
                 self.parent.forti_row.button.config(text="Connect", cursor="arrow")
-                self.parent.enable_connect_buttons()
+                self.parent.enable_buttons("forti")
                 return False
 
         self.parent.forti_row.status.config(text="Connected", foreground="green")
@@ -1805,19 +1774,22 @@ class IPTranslator:
             __import_forti_thread.start()
 
             while __import_forti_thread.is_alive():
-                self.parent.get_root().update()
+                self.parent.root.update()
                 if isinstance(window, tk.Toplevel) and window.winfo_exists():
                     window.update()
                 time.sleep(0.1)
 
             __import_forti_thread.join()
 
+            if not self.forti_addresses:
+                self.parent.set_info_message("No addresses imported from FortiGate.", "red", "arrow")
+
         except Exception as e:
             self.forti_addresses = []
-            self.parent.log.set(f"ERROR - Failed to import FortiGate addresses{f": {str(e)}" if self.__DEBUG else ""}.")
+            self.parent.log.set(f"ERROR - Failed to import FortiGate addresses{f": {str(e)}" if self.DEBUG else ""}.")
 
         self.parent.forti_row.button.config(text="Connect", cursor="arrow")
-        self.parent.enable_connect_buttons()
+        self.parent.enable_buttons("forti")
         return True
 
     def disconnect_forti(self, logging=True):
@@ -1831,12 +1803,12 @@ class IPTranslator:
             self.parent.forti_row.status.config(text="Not Connected", foreground="red")
             if logging:
                 self.parent.log.set("INFO - Disconnected from FortiGate Device.")
-            self.parent.enable_connect_buttons()
+            self.parent.enable_buttons("forti")
 
-    def import_forti(self, ip: str = "", vdom: str = "") -> bool:
-        if not ip.strip():
+    def import_forti(self, ip: str = "self", vdom: str = "self") -> bool:
+        if ip.strip() == "self":
             ip = self.forti_ip
-        if not vdom.strip():
+        if vdom.strip() == "self":
             vdom = self.forti_vdom
 
         ip = ip.strip()
@@ -1844,7 +1816,10 @@ class IPTranslator:
         if any(sep in vdom for sep in self.separators):
             sep = [sep for sep in self.separators if sep in vdom][0]
             vdom = re.sub(f"{sep}+", sep, vdom.strip())
+            vdom = vdom[1:] if vdom[0] == sep else vdom
             vdom = [v.strip() for v in vdom.split(sep) if v.strip()]
+        else:
+            vdom = [vdom]
 
         self.forti_addresses = []
         __ip_keys = ['subnet', 'start-ip', 'end-ip']
@@ -1855,7 +1830,7 @@ class IPTranslator:
         try:
             __device_vdoms = [v["name"] for v in self.forti_api.cmdb.system.vdom.get()]
 
-            if vdom.lower() in ["", "any", "all"]:
+            if str(vdom[0]).lower() in ["", "any", "all"]:
                 __vdoms = __device_vdoms.copy()
 
                 if not __vdoms:
@@ -1900,10 +1875,13 @@ class IPTranslator:
                     continue
 
                 if items[i]["name"].lower().startswith("network_") and len(items[i]["name"]) > 8:
-                    items[i]["name"] = items[i]["name"][8:]
+                    if self.get_type(items[i]["name"][8:]) != "Invalid":
+                        items.pop(i)
+                        continue
 
                 if self.get_type(items[i]["name"]) != "Invalid":
                     items.pop(i)
+                    continue
 
             for item in items:
                 item_type = self.get_type(item["subnet"])
@@ -1929,37 +1907,35 @@ class IPTranslator:
 
         except Exception as e:
             self.parent.set_info_status("ERROR", "red", "arrow")
-            self.parent.set_info_message(f"Failed to import FortiGate addresses{f": {str(e)}" if self.__DEBUG else ""}."
-                                         , "red", "arrow")
-            self.parent.log.set(f"ERROR - Failed to import FortiGate addresses{f": {str(e)}" if self.__DEBUG else ""}.")
+            self.parent.set_info_message(f"Failed to import FortiGate addresses{f": {str(e)}" if self.DEBUG else ""}.",
+                                         "red", "arrow")
+            self.parent.log.set(f"ERROR - Failed to import FortiGate addresses{f": {str(e)}" if self.DEBUG else ""}.")
             return False
 
     #######################################################
 
     def connect_apic(self,
-                     ip: str = "",
-                     username: str = "",
-                     password: str = "",
-                     apic_class: str = "",
+                     ip: str = "self",
+                     username: str = "self",
+                     password: str = "self",
+                     apic_class: str = "self",
                      window: tk.Toplevel | None = None,
                      ) -> bool:
 
         def failed(error: str = ""):
-            if error:
-                self.parent.log.set(f"ERROR - Failed to connect to APIC{f": {str(error)}" if self.__DEBUG else ""}.")
-            else:
-                self.parent.log.set(f"ERROR - Failed to connect to APIC.")
+            self.parent.log.set(
+                f"ERROR - Failed to connect to APIC{f": {str(error)}" if (self.DEBUG and error) else ""}.")
             self.parent.apic_row.button.config(state="Connect", cursor="arrow")
-            self.parent.enable_connect_buttons()
+            self.parent.enable_buttons("apic")
             self.disconnect_apic(False)
 
-        if not ip.strip():
+        if ip.strip() == "self":
             ip = self.apic_ip
-        if not username.strip():
+        if username.strip() == "self":
             username = self.apic_username
-        if not password:
+        if password == "self":
             password = self.pan_password
-        if not apic_class.strip():
+        if apic_class.strip() == "self":
             apic_class = self.apic_class
 
         ip = ip.strip()
@@ -1969,12 +1945,12 @@ class IPTranslator:
         if self.ssh_apic:
             self.disconnect_apic(False)
 
-        self.parent.disable_connect_buttons()
+        self.parent.disable_buttons("apic")
         self.parent.log.set("INFO - Connecting to APIC...")
 
         if any([ip == "", username == "", password == ""]):
             self.parent.apic_row.button.config(state="Connect", cursor="arrow")
-            self.parent.enable_connect_buttons()
+            self.parent.enable_buttons("apic")
             self.disconnect_apic(False)
             self.parent.log.set("ERROR - APIC credentials are not set.")
             return False
@@ -1996,7 +1972,7 @@ class IPTranslator:
             __ssh_apic_thread.start()
 
             while __ssh_apic_thread.is_alive():
-                self.parent.get_root().update()
+                self.parent.root.update()
                 if isinstance(window, tk.Toplevel) and window.winfo_exists():
                     window.update()
                 time.sleep(0.1)
@@ -2032,18 +2008,21 @@ class IPTranslator:
                     __import_apic_thread.start()
 
                     while __import_apic_thread.is_alive():
-                        self.parent.get_root().update()
+                        self.parent.root.update()
                         if isinstance(window, tk.Toplevel) and window.winfo_exists():
                             window.update()
                         time.sleep(0.1)
 
                     __import_apic_thread.join()
 
+                    if not self.apic_addresses:
+                        self.parent.set_info_message("No addresses imported from APIC.", "red", "arrow")
+
             except Exception as e:
-                self.parent.log.set(f"ERROR - Failed to import APIC addresses{f": {str(e)}" if self.__DEBUG else ""}.")
+                self.parent.log.set(f"ERROR - Failed to import APIC addresses{f": {str(e)}" if self.DEBUG else ""}.")
 
             self.parent.apic_row.button.config(text="Connect", cursor="arrow")
-            self.parent.enable_connect_buttons()
+            self.parent.enable_buttons("apic")
             return True
 
         except Exception as e:
@@ -2061,12 +2040,14 @@ class IPTranslator:
             self.parent.apic_row.status.config(text="Not Connected", foreground="red")
             if logging:
                 self.parent.log.set("INFO - Disconnected from APIC Device.")
-            self.parent.enable_connect_buttons()
+            self.parent.enable_buttons("apic")
 
-    def import_apic(self, ip: str = "", apic_class: str = "") -> bool:
-        if not ip.strip():
+    def import_apic(self,
+                    ip: str = "self",
+                    apic_class: str = "self") -> bool:
+        if ip.strip() == "self":
             ip = self.apic_ip
-        if not apic_class.strip():
+        if apic_class.strip() == "self":
             apic_class = self.apic_class
 
         ip = ip.strip()
@@ -2074,6 +2055,7 @@ class IPTranslator:
         if any(sep in apic_class for sep in self.separators):
             sep = [sep for sep in self.separators if sep in apic_class][0]
             apic_class = re.sub(f"{sep}+", sep, apic_class.strip())
+            apic_class = apic_class[1:] if apic_class[0] == sep else apic_class
             apic_class = ",".join([v.strip() for v in apic_class.split(sep) if v.strip()])
 
         self.apic_addresses = []
@@ -2083,8 +2065,7 @@ class IPTranslator:
 
         try:
             output = self.ssh_apic.exec_command(f"moquery -c {apic_class} " +
-                                                r'| grep -E "^dn[ \t]*:.+\[.*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+.*\]" | cut -d ":" -f 2 | cut -d " " -f 2')[
-                1]
+                                                r'| grep -E "^dn[ \t]*:.+\[.*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+.*\]" | cut -d ":" -f 2 | cut -d " " -f 2')[1]
             output = output.read().decode("utf-8").strip()
             output = re.sub(" +", " ", output)
             output = re.sub(r"[\[\]]", "", output)
@@ -2133,6 +2114,9 @@ class IPTranslator:
                 if not all([tenant, address_object, ip_address]):
                     continue
 
+                if ip_address in ["0.0.0.0/32", "0.0.0.0/0"]:
+                    continue
+
                 if self.get_type(address_object) != "Invalid":
                     continue
 
@@ -2162,9 +2146,9 @@ class IPTranslator:
 
         except Exception as e:
             self.parent.set_info_status("ERROR", "red", "arrow")
-            self.parent.set_info_message(f"Failed to import APIC addresses{f": {str(e)}" if self.__DEBUG else ""}.",
+            self.parent.set_info_message(f"Failed to import APIC addresses{f": {str(e)}" if self.DEBUG else ""}.",
                                          "red", "arrow")
-            self.parent.log.set(f"ERROR - Failed to import APIC addresses{f": {str(e)}" if self.__DEBUG else ""}.")
+            self.parent.log.set(f"ERROR - Failed to import APIC addresses{f": {str(e)}" if self.DEBUG else ""}.")
             return False
 
     #######################################################
@@ -2183,7 +2167,7 @@ class IPTranslator:
         if not servers:
             return []
 
-        self.parent.disable_connect_buttons()
+        self.parent.disable_buttons("dns")
         self.parent.dns_row.button.config(cursor="wait", text="Checking")
         self.parent.log.set("INFO - Checking DNS Servers...")
 
@@ -2223,7 +2207,7 @@ class IPTranslator:
             self.dns_resolver.timeout = 1
 
         self.parent.dns_row.button.config(text="Check", cursor="arrow")
-        self.parent.enable_connect_buttons()
+        self.parent.enable_buttons("dns")
         return output
 
     #######################################################
@@ -2232,12 +2216,12 @@ class IPTranslator:
         __filename = f"{datetime.now().strftime('%Y.%m.%d_%H.%M.%S')}_Output.xlsx"
         while True:
             self.output_file = filedialog.SaveAs(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")],
-                                                 parent=self.parent.get_root(), title="Save As", initialfile=__filename,
+                                                 parent=self.parent.root, title="Save As", initialfile=__filename,
                                                  initialdir=".", confirmoverwrite=False).show()
 
             if not self.output_file:
                 if tk.messagebox.askyesno("Save As", "Do you want to cancel saving the outputs?",
-                                          parent=self.parent.get_root(), icon="warning", default="no"):
+                                          parent=self.parent.root, icon="warning", default="no"):
                     return "Cancel"
                 else:
                     continue
@@ -2247,7 +2231,7 @@ class IPTranslator:
 
             if os.path.isfile(self.output_file):
                 if not tk.messagebox.askyesno("Save As", "The file already exists. Do you want to overwrite it?",
-                                              parent=self.parent.get_root(), icon="warning", default="no"):
+                                              parent=self.parent.root, icon="warning", default="no"):
                     continue
 
             __filename = self.output_file.split("/")[-1]
@@ -2280,7 +2264,7 @@ class IPTranslator:
             return __filename
 
         except Exception as e:
-            self.parent.log.set(f"ERROR - Failed to save outputs{f": {str(e)}" if self.__DEBUG else ""}.")
+            self.parent.log.set(f"ERROR - Failed to save outputs{f": {str(e)}" if self.DEBUG else ""}.")
             return "Error"
 
     def get_type(self, subnet) -> str:
@@ -2490,14 +2474,12 @@ class IPTranslator:
             if not isinstance(subnet, str):
                 subnet = self.convert2ipaddress(subnet, subnet_type)
 
-            self.parent.log.set(f"ERROR - Failed checking {ip} in {subnet}{f": {str(e)}" if self.__DEBUG else ""}")
+            self.parent.log.set(f"ERROR - Failed checking {ip} in {subnet}{f": {str(e)}" if self.DEBUG else ""}")
             return False
 
     def Translate(self) -> None:
         self.parent.pre_start()
-        __start_flag = self.parent.start_status()
-        __stop_flag = self.parent.stop_status()
-        flags = self.parent.get_methods_flags()
+        flags = self.parent.methods_flags
         self.parent.progress_bar.config(value=0, maximum=self.all_inputs_no)
         self.parent.progress_percentage.config(text="%0", foreground="black")
 
@@ -2510,18 +2492,13 @@ class IPTranslator:
             self.outputs[sheet] = [[] for _ in range(7)]
             for i, subnet in enumerate(self.inputs[sheet]):
 
-                __start_flag = self.parent.start_status()
-                __stop_flag = self.parent.stop_status()
-
-                while __stop_flag:
-                    __start_flag = self.parent.start_status()
-                    __stop_flag = self.parent.stop_status()
-                    if self.__stop:
+                while self.parent.pause_flag:
+                    if self.parent.stop_flag:
                         return
-                    if not __start_flag:
+                    if not self.parent.start_flag:
                         break
                 else:
-                    if not __start_flag:
+                    if not self.parent.start_flag:
                         break
 
                 self.outputs[sheet][0].append(subnet[0])
@@ -2631,7 +2608,7 @@ class IPTranslator:
                 self.outputs[sheet][5].append("\n\n".join(__type))
 
             else:
-                if not __start_flag:
+                if not self.parent.start_flag:
                     break
 
         if self.parent.progress_bar['value'] >= self.all_inputs_no:
@@ -2659,7 +2636,7 @@ class IPTranslator:
         self.parent.log.set(f"INFO - Translation completed in {timedelta(seconds=round(t2 - t1))}.")
         self.parent.post_start()
         self.clear_var()
-        self.parent.get_root().update()
+        self.parent.root.update()
         return
 
     #######################################################
