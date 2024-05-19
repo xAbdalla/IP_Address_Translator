@@ -3,7 +3,7 @@
 # IP Address Translator (IAT)
 
 ![Static Badge](https://img.shields.io/badge/language-python-yellow)
-[![Static Badge](https://img.shields.io/badge/version-1.5-blue)](https://github.com/xAbdalla/IP_Address_Translator/releases/tag/v1.5)
+[![Static Badge](https://img.shields.io/badge/version-1.5.1-blue)](https://github.com/xAbdalla/IP_Address_Translator/releases/tag/v1.5)
 [![Static Badge](https://img.shields.io/badge/license-MIT-green)](https://github.com/xAbdalla/IP_Address_Translator?tab=MIT-1-ov-file#readme)
 [![Static Badge](https://img.shields.io/badge/author-xAbdalla-red)](https://github.com/xAbdalla)
 
