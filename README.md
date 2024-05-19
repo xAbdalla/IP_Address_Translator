@@ -1,4 +1,4 @@
-<img src="res/img/IAT_icon.png" style="float: right;height: 64px" alt="icon"/>
+<img src="res/img/IAT_icon.png" align= "right" style="float: right;height: 64px" alt="icon"/>
 
 # IP Address Translator (IAT)
 
@@ -9,7 +9,7 @@
 
 IP Address Translator is a Python script that maps IP addresses to descriptive object names or domain names. With a GUI interface and a simple design, the script is easy to use by anyone.
 
-<p style="text-align: center"><img src="res/img/screenshot.png" alt=""></p>
+<p align= "center" style="text-align: center"><img src="res/img/screenshot.png" alt=""></p>
 
 ## Features
 
