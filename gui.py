@@ -433,7 +433,7 @@ class CredentialsWindow:
         elif self.app == "dns":
             __servers = __strings.copy()
 
-            for i in range(3, -1, -1):
+            for i in range(len(__servers)-1, -1, -1):
                 if not __servers[i]:
                     __servers.pop(i)
             if len(__servers) < 4:
@@ -513,7 +513,7 @@ class GUI:
     def __init__(self,
                  name: str = "IP Address Translator",
                  short_name: str = "IAT",
-                 version: str = "1.5",
+                 version: str = "1.5.1",
                  width: int = 550,
                  height: int = 490,
                  icon_data: str = utilities.ICON_DATA,
