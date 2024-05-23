@@ -269,7 +269,6 @@ class CredentialsWindow:
         self.elements = {}
         self.entries_var = [StringVar() for _ in range(len(self.rows))]
         for i, row in enumerate(self.rows):
-            self.entries_var.append(StringVar())
             name, default, bold = row
 
             self.elements[name] = {}
